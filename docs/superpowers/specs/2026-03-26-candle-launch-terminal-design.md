@@ -19,7 +19,7 @@ A Bloomberg-style quantitative terminal for Solana, built to give edge on when a
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   React Frontend                     │
-│  (Vite + TypeScript + TailwindCSS + Recharts/D3)    │
+│  (Vite + TypeScript + TailwindCSS + Recharts)        │
 │  Dark terminal theme / Bloomberg toggle              │
 │  Multi-page: each tool = a route                     │
 └──────────────────────┬──────────────────────────────┘
@@ -53,6 +53,47 @@ A Bloomberg-style quantitative terminal for Solana, built to give edge on when a
 - **Scheduler:** APScheduler runs background jobs that fetch data on intervals — frontend reads from cache/DB, never hits external APIs directly on user requests
 - **Modular tools:** Each tool is a FastAPI router — isolated module with its own data fetching, processing, and endpoints
 - **Fetchers separate from routers:** Fetchers write to DB on schedule, routers read from DB on request
+- **CORS:** FastAPI configured with `CORSMiddleware` allowing the Vite dev server origin (localhost:5173) in development, configurable for production
+- **Theme-aware components:** All UI components accept a theme prop from Phase 1 so Bloomberg mode can be retrofitted without rewriting
+
+---
+
+## Error Handling & Resilience
+
+External free-tier APIs are the biggest operational risk. Every fetcher must handle failures gracefully.
+
+### Fetcher Resilience
+
+- **Retry policy:** Each fetcher retries up to 3 times with exponential backoff (1s, 4s, 16s) + jitter on 4xx/5xx or timeout
+- **Circuit breaker:** After 5 consecutive failures, a fetcher enters "open" state for 5 minutes before retrying. Prevents hammering a down API
+- **Stale data thresholds:** Each data source has a staleness limit (e.g., DexScreener: 5 min, DeFi Llama: 30 min, pytrends: 6 hours). Data older than the threshold is flagged in the UI with a warning badge
+- **Graceful degradation:** If a data source is unavailable, composite scores that depend on it exclude that factor and show "(N of M factors available)" rather than failing entirely. Individual metric cards show "Stale" or "Unavailable" with the last known value and timestamp
+
+### Rate Limit Budget (Helius Free Tier)
+
+Helius free tier: 10 RPC requests/second, ~100K credits/day. Budget allocation:
+- `getRecentPerformanceSamples` (TPS): 1 call every 2 min = 720/day
+- `getRecentPrioritizationFees`: 1 call every 2 min = 720/day
+- `getTokenSupply` x2 (USDC + USDT): 2 calls every 5 min = 576/day
+- Exchange wallet checks (5 wallets): 5 calls every 5 min = 1,440/day
+- On-chain token/pool monitoring: via `getSignaturesForAddress` every 2 min = 720/day
+- **Total: ~4,176 calls/day** — well within the 100K budget
+
+### On-Chain Monitoring Approach
+
+For MVP, use **polling with gap detection** rather than real-time webhooks:
+- Poll `getSignaturesForAddress` on key programs (pump.fun, Raydium, Meteora) every 2 minutes
+- Track the last seen signature to avoid missing events between polls
+- Accept that events are detected with up to 2-minute delay — acceptable for a dashboard, not a trading bot
+- When Helius paid tier is added, migrate to webhooks for real-time event streaming
+
+### pytrends Fragility
+
+pytrends is an unofficial scraper that Google frequently blocks. Mitigations:
+- Fetch with random delays (30–90s between calls)
+- Cache aggressively — Google Trends data is hourly at best, so 1-hour fetch is fine
+- If blocked, show "Google Trends unavailable" with last known data and timestamp
+- Long-term: consider SerpApi free tier (100 searches/month) as fallback
 
 ---
 
@@ -62,7 +103,7 @@ A Bloomberg-style quantitative terminal for Solana, built to give edge on when a
 
 | Source | What It Provides | Fetch Interval |
 |---|---|---|
-| **Solana RPC** (public + Helius free) | TPS, priority fees, stablecoin supply, token mints, account data | 30s |
+| **Solana RPC** (public + Helius free) | TPS, priority fees, stablecoin supply, token mints, account data | 2 min |
 | **DexScreener** | Real-time prices, trending tokens, volume, boosts — no key needed | 1 min |
 | **GeckoTerminal** | OHLCV candle data for any Solana DEX token — no key needed | 5 min |
 | **Jupiter** | Best aggregated Solana token prices — no key needed | 1 min |
@@ -71,7 +112,7 @@ A Bloomberg-style quantitative terminal for Solana, built to give edge on when a
 | **pytrends** | Google search trends for crypto keywords | 1 hour |
 | **Fear & Greed Index** (alternative.me) | Daily market sentiment | 1 hour |
 | **GitHub API** | Ecosystem development activity | 6 hours |
-| **On-chain monitoring** | New token mints, DEX pool creation, pump.fun activity, exchange wallets | 1 min |
+| **On-chain monitoring** | New token mints, DEX pool creation, pump.fun activity, exchange wallets | 2 min |
 
 ### Paid Tier (Add Later)
 
@@ -123,6 +164,8 @@ Is now a good time to launch a token?
 - Market cap distribution — median/90th percentile peak market cap for new tokens
 - Holding duration signals — buy-and-hold vs quick flipping
 
+**Cold-start note:** Survival rate and holding duration require historical tracking. These metrics become meaningful after ~7 days of data collection. During cold-start, the UI shows "Collecting data (X days of Y needed)" and the Launch Window Score excludes these factors, recalculating from available metrics only.
+
 **Composite score:** Launch Window Score — Good / Cautious / Wait
 
 **Data sources:** On-chain monitoring (SPL Token program, DEX programs, pump.fun program), GeckoTerminal, DexScreener
@@ -134,7 +177,7 @@ Is now a good time to launch a token?
 What themes/narratives are hot?
 
 **Metrics:**
-- Token categorization by narrative (AI, pets, political, TikTok, gaming, etc.)
+- Token categorization by narrative (AI, pets, political, TikTok, gaming, etc.) — MVP uses keyword/regex matching on token name, symbol, and description metadata (e.g., tokens with "AI", "GPT", "neural" → AI category; "dog", "cat", "pepe" → meme/animals). Categories are defined in a config file for easy tuning. LLM-based classification is a future upgrade.
 - Volume and market cap by narrative category — trending up/down
 - Google Trends for narrative keywords
 - Narrative momentum — gaining vs losing volume 24h/7d
@@ -152,7 +195,7 @@ What themes/narratives are hot?
 What are the big players doing?
 
 **Metrics:**
-- Exchange wallet SOL balances — known exchange hot/cold wallets
+- Exchange wallet SOL balances — known exchange hot/cold wallets (initial address list curated from Solscan labels and community sources, stored as a JSON config file in the backend — e.g., Binance, Coinbase, Kraken, OKX, Bybit hot wallets)
 - Net exchange flow — deposits (bearish) vs withdrawals (bullish)
 - Large transaction alerts — SOL/USDC above threshold
 - Stablecoin exchange flows
@@ -247,11 +290,11 @@ All scores are fully transparent — every factor visible with its current value
 ### Tech Stack
 - Vite + React + TypeScript
 - TailwindCSS
-- Recharts + D3.js for custom visualizations
+- Recharts for all charts (D3.js deferred to post-MVP if custom visualizations are needed)
 - React Router for multi-page navigation
 
 ### Navigation
-Sidebar navigation, always visible. Pages: Pulse, Launch, Narrative, Whales, Chains, Trending, Settings.
+Sidebar navigation, always visible. Pages: Pulse, Launch, Narrative, Whales, Chains, Trending, Settings (theme toggle + data source status).
 
 ### Default Theme (Dark Terminal)
 - Background: near-black (#0a0a0f) with subtle grid texture
@@ -274,7 +317,7 @@ Each page follows: Composite Score → Factor Breakdown (expandable) → Main Ch
 Desktop-first. Support down to 1200px. No mobile layout for MVP.
 
 ### Data Freshness
-"Last updated" timestamp on every page. Auto-refresh based on fetch intervals. Subtle pulse animation on refresh.
+"Last updated" timestamp on every page. Auto-refresh via polling at intervals matching the backend fetch schedule. Subtle pulse animation on refresh. WebSocket/SSE is a future consideration for true real-time updates.
 
 ---
 
@@ -315,8 +358,11 @@ launch_terminal/
 │   │       ├── correlation.py
 │   │       ├── regime.py
 │   │       └── narrative_classify.py
+│   │   └── data/
+│   │       └── exchange_wallets.json  # Curated exchange wallet addresses
 │   ├── requirements.txt
-│   └── .env
+│   ├── .env.example                   # Template with required env vars
+│   └── .env                           # Actual keys (gitignored)
 │
 ├── frontend/
 │   ├── src/
@@ -334,7 +380,8 @@ launch_terminal/
 │   │   │   ├── Narrative.tsx
 │   │   │   ├── Whales.tsx
 │   │   │   ├── Chains.tsx
-│   │   │   └── Trending.tsx
+│   │   │   ├── Trending.tsx
+│   │   │   └── Settings.tsx
 │   │   ├── hooks/
 │   │   ├── styles/
 │   │   │   ├── terminal-theme.css
@@ -393,3 +440,89 @@ launch_terminal/
 - Bloomberg mode toggle
 - Score tuning with real data
 - Performance optimization
+
+**MVP definition:** The terminal is usable after Phase 2 (one working tool with real data). Phases 2–4 are the core MVP. Phases 5–7 are stretch goals. Phase 8 is post-MVP polish.
+
+---
+
+## Settings Page
+
+The Settings page contains:
+- **Theme toggle:** Switch between Dark Terminal and Bloomberg mode
+- **Data source status:** Live/stale/unavailable status for each fetcher, with last fetch timestamp and error count
+- **API key management:** Input fields for optional paid API keys (Helius, Birdeye, etc.) — stored in `.env`, not in the database
+
+---
+
+## Development Setup
+
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- npm or pnpm
+
+### Backend
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
+cp .env.example .env      # Add API keys
+uvicorn app.main:app --reload --port 8000
+```
+
+### Frontend
+```bash
+cd frontend
+npm install
+npm run dev               # Starts on localhost:5173
+```
+
+### Environment Variables (.env.example)
+```
+HELIUS_API_KEY=           # Optional — free tier key from helius.dev
+COINGECKO_API_KEY=        # Optional — demo key from coingecko.com
+GITHUB_TOKEN=             # Optional — for higher rate limits
+```
+
+All API keys are optional for MVP. The system works with public/free endpoints when keys are not provided.
+
+---
+
+## Testing Approach
+
+### Backend
+- **Unit tests:** Each analysis module (zscore, moving_averages, scores, etc.) tested with known input/output — pure functions, no external dependencies
+- **Fetcher tests:** Mock HTTP responses for each data source. Verify parsing, error handling, and rate limit behavior. Use `pytest` + `responses` or `httpx` mock
+- **Integration tests:** Test the scheduler → fetcher → database → router pipeline end-to-end with mocked external APIs
+- **Framework:** pytest
+
+### Frontend
+- **Component tests:** Key components (ScoreCard, FactorBreakdown, charts) tested with React Testing Library
+- **Framework:** Vitest + React Testing Library
+
+### Data validation
+- Each fetcher validates response shape before writing to DB (e.g., expected fields present, values in reasonable ranges)
+- Scores have sanity bounds — composite scores clamped to valid ranges, individual factors checked for NaN/infinity
+
+---
+
+## .gitignore
+
+```
+# Backend
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+*.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+```
