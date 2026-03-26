@@ -10,11 +10,11 @@ def compute_zscore(values: list[float], current: float) -> float:
     variance = sum((v - mean) ** 2 for v in values) / len(values)
     std = math.sqrt(variance)
     if std == 0:
-        # All values identical: any deviation is infinitely anomalous
+        # All values identical: clamp to large finite value (avoids JSON serialization issues)
         if current > mean:
-            return float("inf")
+            return 10.0
         elif current < mean:
-            return float("-inf")
+            return -10.0
         return 0.0
     return (current - mean) / std
 
