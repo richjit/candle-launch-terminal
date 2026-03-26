@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    scheduler.shutdown(wait=False)
+    scheduler.shutdown(wait=True)
     await http_client.aclose()
     await db_engine.dispose()
 
