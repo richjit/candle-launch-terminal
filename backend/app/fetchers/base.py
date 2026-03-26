@@ -1,5 +1,8 @@
 # backend/app/fetchers/base.py
+import asyncio
+import json
 import logging
+import random
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 
@@ -47,9 +50,6 @@ class BaseFetcher(ABC):
 
     async def run(self) -> list[dict]:
         """Full fetch cycle: circuit check → retry fetch → parse → cache + DB."""
-        import asyncio
-        import random
-
         try:
             self.circuit.check()
         except CircuitOpenError as e:
@@ -94,11 +94,13 @@ class BaseFetcher(ABC):
 
     async def _persist_metrics(self, metrics: list[dict], fetched_at: datetime):
         """Write metrics to the database for historical analysis."""
-        import json
         try:
             from app.database import get_session, MetricData
             async with get_session(self.db_engine) as session:
                 for m in metrics:
+                    if "metric_name" not in m or "value" not in m:
+                        logger.warning(f"[{self.source_name}] Skipping malformed metric: {m}")
+                        continue
                     row = MetricData(
                         source=self.source_name,
                         metric_name=m["metric_name"],
