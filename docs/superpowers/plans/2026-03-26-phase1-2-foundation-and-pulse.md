@@ -55,8 +55,7 @@
 | `frontend/package.json` | Dependencies and scripts |
 | `frontend/tsconfig.json` | TypeScript config |
 | `frontend/vite.config.ts` | Vite config with proxy to backend |
-| `frontend/tailwind.config.ts` | Tailwind with custom dark terminal theme |
-| `frontend/postcss.config.js` | PostCSS for Tailwind |
+| `frontend/.gitignore` | Frontend gitignore (from Vite scaffold) |
 | `frontend/index.html` | Entry HTML |
 | `frontend/src/main.tsx` | React entry point |
 | `frontend/src/App.tsx` | Router setup, theme provider |
@@ -109,13 +108,39 @@
 ### Task 1: Backend Project Setup
 
 **Files:**
+- Create: `.gitignore`
 - Create: `backend/requirements.txt`
 - Create: `backend/.env.example`
 - Create: `backend/app/__init__.py`
 - Create: `backend/app/config.py`
+- Create: `backend/app/analysis/__init__.py`
 - Create: `backend/tests/__init__.py`
 - Create: `backend/tests/conftest.py`
 - Create: `backend/tests/test_config.py`
+
+- [ ] **Step 0: Create .gitignore (must be first file)**
+
+```
+# Backend
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+*.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+```
 
 - [ ] **Step 1: Create requirements.txt**
 
@@ -183,6 +208,11 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'app'`
 ```
 
 ```python
+# backend/app/analysis/__init__.py
+# (empty)
+```
+
+```python
 # backend/tests/__init__.py
 # (empty)
 ```
@@ -228,7 +258,10 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
-settings = Settings()
+
+def get_settings() -> Settings:
+    """Factory function for settings. Allows test overrides."""
+    return Settings()
 ```
 
 - [ ] **Step 7: Create conftest.py with shared fixtures**
@@ -254,8 +287,8 @@ Expected: PASS (2 tests)
 - [ ] **Step 9: Commit**
 
 ```bash
-git add backend/requirements.txt backend/.env.example backend/app/__init__.py backend/app/config.py backend/tests/__init__.py backend/tests/conftest.py backend/tests/test_config.py
-git commit -m "feat: backend project setup with config and env template"
+git add .gitignore backend/requirements.txt backend/.env.example backend/app/__init__.py backend/app/analysis/__init__.py backend/app/config.py backend/tests/__init__.py backend/tests/conftest.py backend/tests/test_config.py
+git commit -m "feat: backend project setup with config, env template, and gitignore"
 ```
 
 ---
@@ -271,15 +304,8 @@ git commit -m "feat: backend project setup with config and env template"
 ```python
 # backend/tests/test_database.py
 import pytest
-import asyncio
 from datetime import datetime, timezone
 from app.database import init_db, get_session, MetricData
-
-@pytest.fixture
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 @pytest.mark.asyncio
 async def test_write_and_read_metric():
@@ -704,11 +730,15 @@ class BaseFetcher(ABC):
 
     Subclasses implement `source_name`, `fetch_data`, and `parse_response`.
     The `run` method handles the full cycle: check circuit → fetch → parse → store.
+
+    Note: Subclasses should NOT use @retry_with_backoff on fetch_data.
+    Retries are handled here in run() to coordinate with the circuit breaker.
     """
 
-    def __init__(self, cache: MemoryCache, http_client: httpx.AsyncClient):
+    def __init__(self, cache: MemoryCache, http_client: httpx.AsyncClient, db_engine=None):
         self.cache = cache
         self.http = http_client
+        self.db_engine = db_engine
         self.circuit = CircuitBreaker(failure_threshold=5, recovery_timeout=300)
         self.last_fetch_at: datetime | None = None
         self.error_count: int = 0
@@ -730,34 +760,71 @@ class BaseFetcher(ABC):
         """
 
     async def run(self) -> list[dict]:
-        """Full fetch cycle: circuit check → fetch → parse → cache."""
+        """Full fetch cycle: circuit check → retry fetch → parse → cache + DB."""
+        import asyncio
+        import random
+        import json
+
         try:
             self.circuit.check()
         except CircuitOpenError as e:
             logger.warning(f"[{self.source_name}] {e}")
             return []
 
+        # Retry loop (coordinated with circuit breaker)
+        last_err = None
+        for attempt in range(3):
+            try:
+                raw_data = await self.fetch_data()
+                metrics = self.parse_response(raw_data)
+                now = datetime.now(timezone.utc)
+                self.last_fetch_at = now
+                self.error_count = 0
+                self.circuit.record_success()
+
+                # Cache each metric
+                for m in metrics:
+                    cache_key = f"{self.source_name}:{m['metric_name']}"
+                    self.cache.set(cache_key, {**m, "fetched_at": now.isoformat()}, ttl=600)
+
+                # Persist to DB for historical analysis
+                if self.db_engine:
+                    await self._persist_metrics(metrics, now)
+
+                logger.info(f"[{self.source_name}] Fetched {len(metrics)} metrics")
+                return metrics
+
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    delay = (1.0 * (4 ** attempt)) + random.uniform(0, 1)
+                    logger.warning(f"[{self.source_name}] Attempt {attempt+1} failed: {e}. Retry in {delay:.1f}s")
+                    await asyncio.sleep(delay)
+
+        # All retries exhausted
+        self.error_count += 1
+        self.circuit.record_failure()
+        logger.error(f"[{self.source_name}] Fetch failed after 3 attempts: {last_err}")
+        return []
+
+    async def _persist_metrics(self, metrics: list[dict], fetched_at: datetime):
+        """Write metrics to the database for historical analysis."""
+        import json
         try:
-            raw_data = await self.fetch_data()
-            metrics = self.parse_response(raw_data)
-            now = datetime.now(timezone.utc)
-            self.last_fetch_at = now
-            self.error_count = 0
-            self.circuit.record_success()
-
-            # Cache each metric
-            for m in metrics:
-                cache_key = f"{self.source_name}:{m['metric_name']}"
-                self.cache.set(cache_key, {**m, "fetched_at": now.isoformat()}, ttl=600)
-
-            logger.info(f"[{self.source_name}] Fetched {len(metrics)} metrics")
-            return metrics
-
+            from app.database import get_session, MetricData
+            async with get_session(self.db_engine) as session:
+                for m in metrics:
+                    row = MetricData(
+                        source=self.source_name,
+                        metric_name=m["metric_name"],
+                        value=m["value"],
+                        metadata_json=json.dumps(m.get("metadata")) if m.get("metadata") else None,
+                        fetched_at=fetched_at,
+                    )
+                    session.add(row)
+                await session.commit()
         except Exception as e:
-            self.error_count += 1
-            self.circuit.record_failure()
-            logger.error(f"[{self.source_name}] Fetch failed: {e}")
-            return []
+            logger.error(f"[{self.source_name}] DB persist failed: {e}")
 
     def status(self) -> dict:
         """Return current fetcher health status."""
@@ -850,7 +917,6 @@ class DexScreenerFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "dexscreener"
 
-    @retry_with_backoff(max_retries=3, base_delay=1.0)
     async def fetch_data(self) -> dict:
         resp = await self.http.get(
             f"{self.BASE_URL}/tokens/So11111111111111111111111111111111111111112",
@@ -980,7 +1046,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.cache import MemoryCache
-from app.config import settings
+from app.config import get_settings
 from app.database import init_db
 from app.scheduler import scheduler, register_fetcher_job
 from app.fetchers.dexscreener import DexScreenerFetcher
@@ -998,11 +1064,12 @@ async def lifespan(app: FastAPI):
     global http_client, db_engine
 
     # Startup
+    settings = get_settings()
     db_engine = await init_db(settings.database_url)
     http_client = httpx.AsyncClient()
 
     # Create fetchers
-    dexscreener = DexScreenerFetcher(cache=cache, http_client=http_client)
+    dexscreener = DexScreenerFetcher(cache=cache, http_client=http_client, db_engine=db_engine)
 
     all_fetchers = [dexscreener]
     set_fetchers(all_fetchers)
@@ -1057,8 +1124,6 @@ git commit -m "feat: FastAPI app with scheduler, CORS, health endpoint, DexScree
 - Create: `frontend/package.json`
 - Create: `frontend/tsconfig.json`
 - Create: `frontend/vite.config.ts`
-- Create: `frontend/tailwind.config.ts`
-- Create: `frontend/postcss.config.js`
 - Create: `frontend/index.html`
 - Create: `frontend/src/main.tsx`
 - Create: `frontend/src/App.tsx`
@@ -1075,39 +1140,7 @@ If the directory is not empty or scaffolding fails, create the files manually as
 
 Run: `cd frontend && npm install react-router-dom recharts && npm install -D tailwindcss @tailwindcss/vite`
 
-- [ ] **Step 3: Configure tailwind.config.ts**
-
-```typescript
-// frontend/tailwind.config.ts
-import type { Config } from "tailwindcss";
-
-export default {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
-  theme: {
-    extend: {
-      colors: {
-        terminal: {
-          bg: "#0a0a0f",
-          card: "#12121a",
-          border: "#1e1e2e",
-          accent: "#f0b90b",
-          green: "#00e676",
-          red: "#ff1744",
-          cyan: "#00e5ff",
-          muted: "#6b7280",
-          text: "#e0e0e0",
-        },
-      },
-      fontFamily: {
-        mono: ['"JetBrains Mono"', '"IBM Plex Mono"', "monospace"],
-      },
-    },
-  },
-  plugins: [],
-} satisfies Config;
-```
-
-- [ ] **Step 4: Configure vite.config.ts with API proxy**
+- [ ] **Step 3: Configure vite.config.ts with API proxy**
 
 ```typescript
 // frontend/vite.config.ts
@@ -1128,7 +1161,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 5: Create globals.css**
+- [ ] **Step 4: Create globals.css (with Tailwind v4 @theme for terminal colors)**
 
 ```css
 /* frontend/src/styles/globals.css */
@@ -1156,7 +1189,7 @@ body {
 }
 ```
 
-- [ ] **Step 6: Create main.tsx entry**
+- [ ] **Step 5: Create main.tsx entry**
 
 ```tsx
 // frontend/src/main.tsx
@@ -1175,7 +1208,7 @@ createRoot(document.getElementById("root")!).render(
 );
 ```
 
-- [ ] **Step 7: Create App.tsx with routing**
+- [ ] **Step 6: Create App.tsx with routing**
 
 ```tsx
 // frontend/src/App.tsx
@@ -1198,7 +1231,7 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add frontend/
@@ -1368,9 +1401,9 @@ export interface PulseData {
   tps: { current: number; history: Array<{ timestamp: string; value: number }> } | null;
   priority_fees: { current: number; history: Array<{ timestamp: string; value: number }> } | null;
   stablecoin_supply: { total: number; usdc: number; usdt: number } | null;
-  dex_volume: { solana: number; ethereum: number; base: number } | null;
-  tvl: { current: number; history: Array<{ timestamp: string; value: number }> } | null;
-  bridge_flows: { inflow: number; outflow: number; net: number } | null;
+  dex_volume: { current: number; fetched_at?: string } | null;
+  tvl: { current: number; history?: Array<{ timestamp: string | number; value: number }>; chains?: Record<string, number> } | null;
+  stablecoin_flows: { solana: number; chains: Record<string, number> } | null;
   fear_greed: { value: number; label: string } | null;
   google_trends: { solana: number; ethereum: number; bitcoin: number } | null;
   last_updated: string;
@@ -1451,44 +1484,6 @@ git commit -m "feat: API client, TypeScript types, and useApiPolling hook"
 
 ---
 
-### Task 11: .gitignore
-
-**Files:**
-- Create: `.gitignore`
-
-- [ ] **Step 1: Create .gitignore at project root**
-
-```
-# Backend
-backend/.env
-backend/venv/
-backend/__pycache__/
-backend/**/__pycache__/
-*.pyc
-*.db
-
-# Frontend
-frontend/node_modules/
-frontend/dist/
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add .gitignore
-git commit -m "chore: add .gitignore for backend, frontend, and IDE files"
-```
-
----
-
 ## Phase 2: Solana Market Pulse
 
 ### Task 12: Solana RPC Fetcher
@@ -1548,7 +1543,8 @@ def test_parse_tps(fetcher):
     metrics = fetcher._parse_tps(MOCK_TPS_RESPONSE)
     assert len(metrics) == 1
     assert metrics[0]["metric_name"] == "tps"
-    assert metrics[0]["value"] == pytest.approx(2350.0)  # average of 2500 and 2200
+    # TPS = numTransactions / samplePeriodSecs: avg of (2500/60, 2200/60) = ~39.17
+    assert metrics[0]["value"] == pytest.approx(39.17, rel=0.01)
 
 def test_parse_priority_fees(fetcher):
     metrics = fetcher._parse_priority_fees(MOCK_PRIORITY_FEES_RESPONSE)
@@ -1587,8 +1583,8 @@ USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
 
 class SolanaRpcFetcher(BaseFetcher):
-    def __init__(self, cache: MemoryCache, http_client: httpx.AsyncClient, rpc_url: str):
-        super().__init__(cache=cache, http_client=http_client)
+    def __init__(self, cache: MemoryCache, http_client: httpx.AsyncClient, rpc_url: str, db_engine=None):
+        super().__init__(cache=cache, http_client=http_client, db_engine=db_engine)
         self.rpc_url = rpc_url
 
     @property
@@ -1601,7 +1597,6 @@ class SolanaRpcFetcher(BaseFetcher):
         resp.raise_for_status()
         return resp.json()
 
-    @retry_with_backoff(max_retries=3, base_delay=1.0)
     async def fetch_data(self) -> dict:
         tps_data = await self._rpc_call("getRecentPerformanceSamples", [10])
         fees_data = await self._rpc_call("getRecentPrioritizationFees")
@@ -1632,8 +1627,9 @@ class SolanaRpcFetcher(BaseFetcher):
         samples = data.get("result") or []
         if not samples:
             return []
-        avg_tps = sum(s["numTransactions"] / max(s["samplePeriodSecs"], 1) * s["samplePeriodSecs"]
-                      for s in samples) / len(samples)
+        avg_tps = sum(
+            s["numTransactions"] / max(s["samplePeriodSecs"], 1) for s in samples
+        ) / len(samples)
         return [{"metric_name": "tps", "value": avg_tps, "metadata": {"sample_count": len(samples)}}]
 
     def _parse_priority_fees(self, data: dict) -> list[dict]:
@@ -1728,15 +1724,14 @@ import httpx
 class CoinGeckoFetcher(BaseFetcher):
     BASE_URL = "https://api.coingecko.com/api/v3"
 
-    def __init__(self, cache: MemoryCache, http_client: httpx.AsyncClient, api_key: str):
-        super().__init__(cache=cache, http_client=http_client)
+    def __init__(self, cache: MemoryCache, http_client: httpx.AsyncClient, api_key: str, db_engine=None):
+        super().__init__(cache=cache, http_client=http_client, db_engine=db_engine)
         self.api_key = api_key
 
     @property
     def source_name(self) -> str:
         return "coingecko"
 
-    @retry_with_backoff(max_retries=3, base_delay=2.0)
     async def fetch_data(self) -> dict:
         headers = {}
         if self.api_key:
@@ -1823,12 +1818,11 @@ MOCK_CHAINS_TVL = [
     {"name": "Base", "tvl": 3000000000},
 ]
 
-MOCK_BRIDGE_VOLUME = {
-    "chains": {
-        "Solana": {
-            "txs": {"deposit": {"total": 100000000}, "withdraw": {"total": 80000000}},
-        }
-    }
+MOCK_STABLECOINS_RESPONSE = {
+    "chains": [
+        {"name": "Solana", "totalCirculatingUSD": {"peggedUSD": 5000000000}},
+        {"name": "Ethereum", "totalCirculatingUSD": {"peggedUSD": 80000000000}},
+    ]
 }
 
 @pytest.fixture
@@ -1842,18 +1836,23 @@ def test_parse_response(fetcher):
         "tvl_history": MOCK_TVL_RESPONSE,
         "dex_volume": MOCK_DEX_VOLUME_RESPONSE,
         "chains_tvl": MOCK_CHAINS_TVL,
+        "stablecoins": MOCK_STABLECOINS_RESPONSE,
     }
     metrics = fetcher.parse_response(data)
     names = {m["metric_name"] for m in metrics}
     assert "solana_tvl" in names
     assert "dex_volume_24h" in names
     assert "chains_tvl" in names
+    assert "stablecoin_flows" in names
 
     tvl = next(m for m in metrics if m["metric_name"] == "solana_tvl")
     assert tvl["value"] == 4600000000
 
     dex_vol = next(m for m in metrics if m["metric_name"] == "dex_volume_24h")
     assert dex_vol["value"] == 600000000
+
+    stables = next(m for m in metrics if m["metric_name"] == "stablecoin_flows")
+    assert stables["metadata"]["Solana"] == 5000000000
 
 def test_source_name(fetcher):
     assert fetcher.source_name == "defillama"
@@ -1875,12 +1874,12 @@ from app.resilience import retry_with_backoff
 class DefiLlamaFetcher(BaseFetcher):
     BASE_URL = "https://api.llama.fi"
     DEX_URL = "https://api.llama.fi/overview/dexs/solana"
+    STABLECOINS_URL = "https://stablecoins.llama.fi/stablecoinchains"
 
     @property
     def source_name(self) -> str:
         return "defillama"
 
-    @retry_with_backoff(max_retries=3, base_delay=1.0)
     async def fetch_data(self) -> dict:
         tvl_resp = await self.http.get(
             f"{self.BASE_URL}/v2/historicalChainTvl/Solana", timeout=15.0
@@ -1893,10 +1892,14 @@ class DefiLlamaFetcher(BaseFetcher):
         chains_resp = await self.http.get(f"{self.BASE_URL}/v2/chains", timeout=15.0)
         chains_resp.raise_for_status()
 
+        stables_resp = await self.http.get(self.STABLECOINS_URL, timeout=15.0)
+        stables_resp.raise_for_status()
+
         return {
             "tvl_history": tvl_resp.json(),
             "dex_volume": dex_resp.json(),
             "chains_tvl": chains_resp.json(),
+            "stablecoins": stables_resp.json(),
         }
 
     def parse_response(self, data: dict) -> list[dict]:
@@ -1934,6 +1937,22 @@ class DefiLlamaFetcher(BaseFetcher):
             "value": chain_map.get("Solana", 0),
             "metadata": {"chains": chain_map},
         })
+
+        # Stablecoin distribution by chain (proxy for capital flows)
+        stables = data.get("stablecoins") or {}
+        stable_chains = stables.get("chains") if isinstance(stables, dict) else stables
+        if isinstance(stable_chains, list):
+            stable_map = {}
+            for c in stable_chains:
+                name = c.get("name", "")
+                if name in ("Ethereum", "Solana", "Base", "Arbitrum", "BSC"):
+                    pegged = c.get("totalCirculatingUSD", {})
+                    stable_map[name] = float(pegged.get("peggedUSD", 0) if isinstance(pegged, dict) else 0)
+            metrics.append({
+                "metric_name": "stablecoin_flows",
+                "value": stable_map.get("Solana", 0),
+                "metadata": stable_map,
+            })
 
         return metrics
 ```
@@ -2035,7 +2054,6 @@ class FearGreedFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "fear_greed"
 
-    @retry_with_backoff(max_retries=3, base_delay=1.0)
     async def fetch_data(self) -> dict:
         resp = await self.http.get(self.URL, params={"limit": 1}, timeout=15.0)
         resp.raise_for_status()
@@ -2081,26 +2099,23 @@ class GoogleTrendsFetcher(BaseFetcher):
         return result
 
     def _fetch_sync(self) -> dict:
-        try:
-            from pytrends.request import TrendReq
+        from pytrends.request import TrendReq
 
-            # Random delay to avoid rate limiting
-            import time
-            time.sleep(random.uniform(1, 3))
+        # Random delay to avoid rate limiting
+        import time
+        time.sleep(random.uniform(1, 3))
 
-            pytrends = TrendReq(hl="en-US", tz=360, timeout=(10, 25))
-            pytrends.build_payload(KEYWORDS, timeframe="now 7-d")
-            df = pytrends.interest_over_time()
+        pytrends = TrendReq(hl="en-US", tz=360, timeout=(10, 25))
+        pytrends.build_payload(KEYWORDS, timeframe="now 7-d")
+        df = pytrends.interest_over_time()
 
-            if df.empty:
-                return {kw: 0 for kw in KEYWORDS}
-
-            # Get the latest values
-            latest = df.iloc[-1]
-            return {kw: int(latest.get(kw, 0)) for kw in KEYWORDS}
-        except Exception as e:
-            logger.warning(f"Google Trends fetch failed: {e}")
+        if df.empty:
+            logger.warning("Google Trends returned empty data")
             return {kw: 0 for kw in KEYWORDS}
+
+        # Get the latest values
+        latest = df.iloc[-1]
+        return {kw: int(latest.get(kw, 0)) for kw in KEYWORDS}
 
     def parse_response(self, data: dict) -> list[dict]:
         # Use solana's value as the primary metric
@@ -2187,14 +2202,18 @@ def test_moving_average_insufficient():
     assert ma == []
 
 def test_crossover_bullish():
-    short_ma = [1, 2, 3, 5, 7]
+    # short crosses above long between second-to-last and last element
+    short_ma = [1, 2, 3, 3.5, 5]
     long_ma = [2, 3, 4, 4, 4]
+    # prev_diff = 3.5 - 4 = -0.5 (below), curr_diff = 5 - 4 = 1 (above) → bullish
     signal = detect_crossover(short_ma, long_ma)
     assert signal == "bullish"
 
 def test_crossover_bearish():
-    short_ma = [7, 5, 3, 2, 1]
+    # short crosses below long between second-to-last and last element
+    short_ma = [7, 5, 4.5, 4, 2]
     long_ma = [4, 4, 4, 3, 3]
+    # prev_diff = 4 - 3 = 1 (above), curr_diff = 2 - 3 = -1 (below) → bearish
     signal = detect_crossover(short_ma, long_ma)
     assert signal == "bearish"
 
@@ -2453,14 +2472,23 @@ git commit -m "feat: composite health score with weighted z-score sigmoid mappin
 ```python
 # backend/tests/test_pulse_router.py
 import pytest
-from unittest.mock import MagicMock
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from app.main import app
 from app.cache import MemoryCache
+from app.routers.pulse import router as pulse_router, set_cache
 
-def test_pulse_endpoint_returns_structure():
-    """Test that /api/pulse returns the expected shape even with no data."""
-    client = TestClient(app, raise_server_exceptions=False)
+def _make_test_app():
+    """Create a minimal test app with only the pulse router (no lifespan/fetchers)."""
+    test_app = FastAPI()
+    test_app.include_router(pulse_router)
+    cache = MemoryCache()
+    set_cache(cache)
+    return test_app, cache
+
+def test_pulse_endpoint_returns_structure_empty_cache():
+    """Test that /api/pulse returns the expected shape with no cached data."""
+    test_app, _ = _make_test_app()
+    client = TestClient(test_app)
     resp = client.get("/api/pulse")
     assert resp.status_code == 200
     data = resp.json()
@@ -2471,9 +2499,33 @@ def test_pulse_endpoint_returns_structure():
     assert "stablecoin_supply" in data
     assert "dex_volume" in data
     assert "tvl" in data
+    assert "stablecoin_flows" in data
     assert "fear_greed" in data
     assert "google_trends" in data
     assert "last_updated" in data
+    # With empty cache, all data fields should be None
+    assert data["sol_price"] is None
+    assert data["health_score"]["factors_available"] == 0
+
+def test_pulse_endpoint_with_cached_data():
+    """Test that /api/pulse populates from cache correctly."""
+    test_app, cache = _make_test_app()
+    cache.set("coingecko:sol_price", {
+        "metric_name": "sol_price", "value": 150.0,
+        "metadata": {"change_24h": 5.0, "change_7d": -2.0, "change_30d": 10.0},
+        "fetched_at": "2026-01-01T00:00:00Z",
+    }, ttl=600)
+    cache.set("fear_greed:fear_greed", {
+        "metric_name": "fear_greed", "value": 65,
+        "metadata": {"label": "Greed"},
+        "fetched_at": "2026-01-01T00:00:00Z",
+    }, ttl=600)
+    client = TestClient(test_app)
+    resp = client.get("/api/pulse")
+    data = resp.json()
+    assert data["sol_price"]["value"] == 150.0
+    assert data["fear_greed"]["value"] == 65
+    assert data["health_score"]["factors_available"] >= 1
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2518,6 +2570,7 @@ async def get_pulse():
     dex_vol_data = _get_cached("defillama", "dex_volume_24h")
     tvl_data = _get_cached("defillama", "solana_tvl")
     chains_data = _get_cached("defillama", "chains_tvl")
+    stablecoin_flows_data = _get_cached("defillama", "stablecoin_flows")
     fear_greed_data = _get_cached("fear_greed", "fear_greed")
     trends_data = _get_cached("google_trends", "google_trends")
 
@@ -2543,12 +2596,16 @@ async def get_pulse():
     if stablecoin_data:
         z = (stablecoin_data["value"] - 25_000_000) / 10_000_000
         factors.append(ScoreFactor(name="stablecoin_supply", value=stablecoin_data["value"], z_score=z, weight=1.0, label="Stablecoin Supply"))
+    if stablecoin_flows_data:
+        # Stablecoin capital on Solana: ~4B baseline
+        z = (stablecoin_flows_data["value"] - 4_000_000_000) / 1_000_000_000
+        factors.append(ScoreFactor(name="stablecoin_flows", value=stablecoin_flows_data["value"], z_score=z, weight=1.0, label="Stablecoin Capital"))
     if fear_greed_data:
         # Fear & Greed: 0-100, 50 is neutral
         z = (fear_greed_data["value"] - 50) / 25
         factors.append(ScoreFactor(name="fear_greed", value=fear_greed_data["value"], z_score=z, weight=0.5, label="Fear & Greed"))
 
-    health_score = compute_health_score(factors, total_expected=6)
+    health_score = compute_health_score(factors, total_expected=7)
 
     return {
         "health_score": {
@@ -2564,6 +2621,7 @@ async def get_pulse():
         "stablecoin_supply": _format_stablecoin(stablecoin_data),
         "dex_volume": _format_simple(dex_vol_data),
         "tvl": _format_tvl(tvl_data, chains_data),
+        "stablecoin_flows": _format_stablecoin_flows(stablecoin_flows_data),
         "fear_greed": _format_fear_greed(fear_greed_data),
         "google_trends": _format_trends(trends_data),
         "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -2612,6 +2670,13 @@ def _format_fear_greed(data: dict | None) -> dict | None:
     return {"value": data["value"], "label": data.get("metadata", {}).get("label", "Unknown")}
 
 
+def _format_stablecoin_flows(data: dict | None) -> dict | None:
+    if not data:
+        return None
+    md = data.get("metadata", {})
+    return {"solana": data["value"], "chains": md}
+
+
 def _format_trends(data: dict | None) -> dict | None:
     if not data:
         return None
@@ -2645,11 +2710,11 @@ from app.fetchers.fear_greed import FearGreedFetcher
 from app.fetchers.google_trends import GoogleTrendsFetcher
 
 # Inside lifespan, after dexscreener creation:
-solana_rpc = SolanaRpcFetcher(cache=cache, http_client=http_client, rpc_url=settings.solana_rpc_url)
-coingecko = CoinGeckoFetcher(cache=cache, http_client=http_client, api_key=settings.coingecko_api_key)
-defillama = DefiLlamaFetcher(cache=cache, http_client=http_client)
-fear_greed = FearGreedFetcher(cache=cache, http_client=http_client)
-google_trends = GoogleTrendsFetcher(cache=cache, http_client=http_client)
+solana_rpc = SolanaRpcFetcher(cache=cache, http_client=http_client, rpc_url=settings.solana_rpc_url, db_engine=db_engine)
+coingecko = CoinGeckoFetcher(cache=cache, http_client=http_client, api_key=settings.coingecko_api_key, db_engine=db_engine)
+defillama = DefiLlamaFetcher(cache=cache, http_client=http_client, db_engine=db_engine)
+fear_greed = FearGreedFetcher(cache=cache, http_client=http_client, db_engine=db_engine)
+google_trends = GoogleTrendsFetcher(cache=cache, http_client=http_client, db_engine=db_engine)
 
 all_fetchers = [dexscreener, solana_rpc, coingecko, defillama, fear_greed, google_trends]
 
