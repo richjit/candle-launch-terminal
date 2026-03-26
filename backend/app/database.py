@@ -23,23 +23,24 @@ class MetricData(Base):
     )
 
 
-# Global session factory, initialized by init_db
-_session_factory = None
+# Dictionary to store session factories per engine (keyed by engine identity)
+_engine_factories = {}
 
 
 async def init_db(database_url: str):
-    global _session_factory
     engine = create_async_engine(database_url, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # Create session factory once and reuse for all sessions
-    _session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    # Store session factory per engine to avoid global state conflicts in tests
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    _engine_factories[id(engine)] = session_factory
     return engine
 
 
 @asynccontextmanager
 async def get_session(engine):
-    async with _session_factory() as session:
+    session_factory = _engine_factories[id(engine)]
+    async with session_factory() as session:
         try:
             yield session
         except Exception:
