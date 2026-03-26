@@ -1,6 +1,7 @@
 # backend/tests/test_database.py
 import pytest
 from datetime import datetime, timezone
+from sqlalchemy import select
 from app.database import init_db, get_session, MetricData
 
 @pytest.mark.asyncio
@@ -17,7 +18,6 @@ async def test_write_and_read_metric():
         session.add(metric)
         await session.commit()
 
-        from sqlalchemy import select
         result = await session.execute(
             select(MetricData).where(MetricData.source == "test_source")
         )
@@ -39,7 +39,6 @@ async def test_latest_metric_query():
             session.add(metric)
         await session.commit()
 
-        from sqlalchemy import select
         result = await session.execute(
             select(MetricData)
             .where(MetricData.source == "sol_rpc", MetricData.metric_name == "tps")
