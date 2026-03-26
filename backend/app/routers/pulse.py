@@ -50,7 +50,7 @@ async def get_pulse():
         z = (tvl_data["value"] - 4_000_000_000) / 1_000_000_000
         factors.append(ScoreFactor(name="tvl", value=tvl_data["value"], z_score=z, weight=1.0, label="Total Value Locked"))
     if stablecoin_data:
-        z = (stablecoin_data["value"] - 25_000_000) / 10_000_000
+        z = (stablecoin_data["value"] - 25_000_000_000) / 10_000_000_000
         factors.append(ScoreFactor(name="stablecoin_supply", value=stablecoin_data["value"], z_score=z, weight=1.0, label="Stablecoin Supply"))
     if stablecoin_flows_data:
         z = (stablecoin_flows_data["value"] - 4_000_000_000) / 1_000_000_000

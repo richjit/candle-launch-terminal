@@ -5,6 +5,14 @@ from fastapi.testclient import TestClient
 from app.cache import MemoryCache
 from app.routers.pulse import router as pulse_router, set_cache
 
+
+@pytest.fixture(autouse=True)
+def reset_pulse_cache():
+    """Reset the pulse router's global cache after each test to prevent state leakage."""
+    yield
+    set_cache(MemoryCache())
+
+
 def _make_test_app():
     """Create a minimal test app with only the pulse router (no lifespan/fetchers)."""
     test_app = FastAPI()
