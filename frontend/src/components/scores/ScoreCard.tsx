@@ -53,7 +53,7 @@ export default function ScoreCard({ title, score }: ScoreCardProps) {
           className={`h-full transition-all duration-500 ${
             score.score >= 70 ? "bg-terminal-green" : score.score >= 40 ? "bg-terminal-accent" : "bg-terminal-red"
           }`}
-          style={{ width: `${score.score}%` }}
+          style={{ width: `${Math.min(100, (score.score / score.max_score) * 100)}%` }}
         />
       </div>
     </div>

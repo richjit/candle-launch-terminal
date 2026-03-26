@@ -15,6 +15,7 @@ export default function FactorBreakdown({ factors }: FactorBreakdownProps) {
     <div className="bg-terminal-card border border-terminal-border">
       <button
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="w-full px-6 py-3 flex items-center justify-between text-sm text-terminal-muted hover:text-terminal-text transition-colors"
       >
         <span>Factor Breakdown</span>
