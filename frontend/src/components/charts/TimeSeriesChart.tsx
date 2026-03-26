@@ -45,7 +45,7 @@ export default function TimeSeriesChart({
           <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} tickFormatter={formatValue} />
           <Tooltip
             contentStyle={{ backgroundColor: "#12121a", border: "1px solid #1e1e2e", color: "#e0e0e0", fontSize: 12 }}
-            formatter={(value: number) => [formatValue(value), label]}
+            formatter={(value) => [typeof value === "number" ? formatValue(value) : String(value), label]}
           />
           <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} />
         </LineChart>

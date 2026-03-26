@@ -34,7 +34,7 @@ export interface CompositeScore {
 }
 
 export interface PulseData {
-  health_score: CompositeScore;
+  health_score: CompositeScore | null;
   sol_price: { value: number; change_24h: number; change_7d: number; change_30d: number } | null;
   tps: { current: number; history: Array<{ timestamp: string; value: number }> } | null;
   priority_fees: { current: number; history: Array<{ timestamp: string; value: number }> } | null;
