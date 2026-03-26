@@ -36,8 +36,8 @@ export interface CompositeScore {
 export interface PulseData {
   health_score: CompositeScore | null;
   sol_price: { value: number; change_24h: number; change_7d: number; change_30d: number } | null;
-  tps: { current: number; history: Array<{ timestamp: string; value: number }> } | null;
-  priority_fees: { current: number; history: Array<{ timestamp: string; value: number }> } | null;
+  tps: { current: number; history?: Array<{ timestamp: string; value: number }> } | null;
+  priority_fees: { current: number; history?: Array<{ timestamp: string; value: number }> } | null;
   stablecoin_supply: { total: number; usdc: number; usdt: number } | null;
   dex_volume: { current: number; fetched_at?: string } | null;
   tvl: { current: number; history?: Array<{ timestamp: string | number; value: number }>; chains?: Record<string, number> } | null;
