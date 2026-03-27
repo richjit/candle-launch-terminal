@@ -178,3 +178,137 @@ async def backfill_scores(engine, correlations: list[CorrelationResult]) -> int:
 
     logger.info(f"Backfilled {len(scores_to_insert)} daily scores")
     return len(scores_to_insert)
+
+
+async def compute_today_score(engine, correlations: list[CorrelationResult]) -> float | None:
+    """Compute (or update) today's health score using the latest factor data.
+
+    Called periodically to keep the score fresh as live data arrives.
+    Returns the score value, or None if insufficient data.
+    """
+    today = date.today()
+
+    scored_factors = [c for c in correlations if c.in_score]
+    if not scored_factors:
+        return None
+
+    base_factors = [f for f in scored_factors if f.mode != "interaction"]
+    interaction_factors = [f for f in scored_factors if f.mode == "interaction"]
+
+    # Load base factor data
+    factor_series: dict[str, dict[date, float]] = {}
+    raw_series: dict[str, dict[date, float]] = {}
+    for factor in base_factors:
+        factor_series[factor.name] = await _load_series(engine, factor.name)
+
+    # Load raw series for interaction factors
+    needed_raw = set()
+    for f in interaction_factors:
+        for comp in f.components:
+            needed_raw.add(comp)
+    for source in needed_raw:
+        if source not in raw_series:
+            raw_series[source] = await _load_raw_series(engine, source)
+
+    # Pre-compute interaction series
+    interaction_series: dict[str, dict[date, float]] = {}
+    for factor in interaction_factors:
+        if len(factor.components) == 2:
+            src_a, src_b = factor.components
+            if src_a in raw_series and src_b in raw_series:
+                interaction_series[factor.name] = _compute_interaction_series(
+                    raw_series[src_a], raw_series[src_b]
+                )
+
+    # Get rolling window dates
+    window_start = today - timedelta(days=ROLLING_WINDOW)
+
+    factors_json = {}
+    weighted_z_sum = 0.0
+    total_weight = 0.0
+    factors_available = 0
+
+    for factor in base_factors:
+        series = factor_series.get(factor.name, {})
+        current_val = series.get(today)
+        if current_val is None:
+            continue
+
+        window_vals = [v for d, v in series.items() if window_start <= d < today]
+        if len(window_vals) < 30:
+            continue
+
+        arr = np.array(window_vals)
+        mean = float(np.mean(arr))
+        std = float(np.std(arr))
+        z_score = 0.0 if std == 0 else (current_val - mean) / std
+
+        signed_contribution = math.copysign(1, factor.correlation) * factor.weight * z_score
+        weighted_z_sum += signed_contribution
+        total_weight += factor.weight
+        factors_available += 1
+
+        factors_json[factor.name] = {
+            "value": current_val,
+            "z_score": round(z_score, 4),
+            "weight": factor.weight,
+            "contribution": round(signed_contribution, 4),
+        }
+
+    for factor in interaction_factors:
+        series = interaction_series.get(factor.name, {})
+        current_val = series.get(today)
+        if current_val is None:
+            continue
+
+        window_vals = [v for d, v in series.items() if window_start <= d < today]
+        if len(window_vals) < 30:
+            continue
+
+        arr = np.array(window_vals)
+        mean = float(np.mean(arr))
+        std = float(np.std(arr))
+        z_score = 0.0 if std == 0 else (current_val - mean) / std
+
+        signed_contribution = math.copysign(1, factor.correlation) * factor.weight * z_score
+        weighted_z_sum += signed_contribution
+        total_weight += factor.weight
+        factors_available += 1
+
+        factors_json[factor.name] = {
+            "value": round(current_val, 4),
+            "z_score": round(z_score, 4),
+            "weight": factor.weight,
+            "contribution": round(signed_contribution, 4),
+        }
+
+    if factors_available == 0:
+        return None
+
+    score = 50 + 50 * math.tanh(weighted_z_sum / 2)
+    score = max(0, min(100, round(score, 1)))
+
+    # Upsert today's score
+    async with get_session(engine) as session:
+        existing = await session.execute(
+            select(DailyScore).where(DailyScore.date == today)
+        )
+        row = existing.scalar_one_or_none()
+
+        if row:
+            row.score = score
+            row.factors_json = json.dumps(factors_json)
+            row.factors_available = factors_available
+            row.factors_total = len(scored_factors)
+        else:
+            session.add(DailyScore(
+                date=today,
+                score=score,
+                factors_json=json.dumps(factors_json),
+                factors_available=factors_available,
+                factors_total=len(scored_factors),
+            ))
+        await session.commit()
+
+    logger.info(f"Today's score: {score} ({factors_available} factors)")
+    return score

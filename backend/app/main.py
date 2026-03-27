@@ -22,7 +22,7 @@ from app.routers.pulse_correlations import router as correlations_router, set_co
 from app.routers.pulse_ecosystem import router as ecosystem_router, set_cache as set_ecosystem_cache, set_engine as set_ecosystem_engine
 from app.ingestion.runner import run_backfill
 from app.analysis.correlation import compute_correlations
-from app.analysis.score_backfill import backfill_scores
+from app.analysis.score_backfill import backfill_scores, compute_today_score
 from app.candle_builder import build_daily_candles
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -84,13 +84,24 @@ async def lifespan(app: FastAPI):
     # Build daily candles from live price data (extends chart beyond CSV)
     await build_daily_candles(db_engine)
 
-    # Schedule candle builder to run every 5 minutes
+    # Compute today's score immediately
+    await compute_today_score(db_engine, correlations)
+
+    # Schedule candle builder and score updater to run every 5 minutes
     from apscheduler.triggers.interval import IntervalTrigger
     scheduler.add_job(
         build_daily_candles,
         args=[db_engine],
         trigger=IntervalTrigger(seconds=300),
         id="build_daily_candles",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        compute_today_score,
+        args=[db_engine, correlations],
+        trigger=IntervalTrigger(seconds=300),
+        id="compute_today_score",
         replace_existing=True,
         max_instances=1,
     )

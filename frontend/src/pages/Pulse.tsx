@@ -82,18 +82,22 @@ export default function Pulse() {
     return () => clearTimeout(timer);
   }, [chartData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll ecosystem every 30s
+  // Poll chart + ecosystem every 60s to pick up new candles and scores
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const eco = await fetchEcosystem();
+        const [chart, eco] = await Promise.all([
+          fetchChart("all", Array.from(excludedFactors)),
+          fetchEcosystem(),
+        ]);
+        setChartData(chart);
         setEcosystem(eco);
       } catch {
         // Silently ignore poll failures
       }
-    }, 30000);
+    }, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [excludedFactors]);
 
   const handleRangeChange = useCallback(
     (r: ChartRange) => {
