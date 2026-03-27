@@ -195,12 +195,14 @@ These are standalone async functions scheduled via APScheduler (same pattern as 
    - Checks if still alive (volume > $100 in last hour from DexScreener txns data)
 7. After 7d from creation: sets `checkpoint_complete=True`, stops further updates
 
+**Note:** Discovery (steps 1-4) and enrichment/update (steps 5-7) should be independent. If DexScreener is slow or failing, the GeckoTerminal discovery poll must not be blocked — new tokens should still be inserted into `launch_tokens` even if enrichment data is temporarily unavailable.
+
 **`poll_launchpad_creates`** — runs every 5 minutes:
 - For each launchpad with a known program address:
   - Calls `getSignaturesForAddress` with `limit=1` to confirm activity
   - Increments a daily counter in `MetricData` (source: `"launchpad_creates"`, metric_name: `"{launchpad}_count"`)
 - For pump.fun specifically: fetches total daily creates from pump.fun's public API/stats if available, otherwise estimates from migration count / historical migration rate
-- Budget: ~29k Helius credits/day
+- Budget: ~3k Helius credits/day (leaves ~30k/day headroom under the ~33k daily limit)
 
 **`cleanup_old_tokens`** — runs weekly:
 - Deletes `launch_tokens` rows where `checkpoint_complete=True` AND `created_at < 90 days ago`
@@ -316,7 +318,7 @@ Sidebar "Launch" item already exists, points to `/launch`.
 ## Cold Start
 
 This tool needs data collection time. On first run:
-- Launch tracking starts immediately (DexScreener token profiles)
+- Launch tracking starts immediately (GeckoTerminal pool discovery + DexScreener enrichment)
 - 1h metrics available after 1 hour
 - 24h metrics available after 1 day
 - 7d metrics available after 1 week
