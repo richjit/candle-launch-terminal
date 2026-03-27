@@ -118,6 +118,8 @@ const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickChartProp
       }))
     );
 
+    chartRef.current.timeScale().fitContent();
+
     // Score-based background gradient via CSS
     if (scores.length > 0) {
       const avgScore = scores.reduce((sum, s) => sum + s.score, 0) / scores.length;
