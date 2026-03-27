@@ -24,6 +24,8 @@ from app.database import get_session, HistoricalData
 logger = logging.getLogger(__name__)
 
 MIN_DATA_POINTS = 365
+# Dune on-chain factors only have ~90 days (free tier query limits)
+MIN_DATA_POINTS_SHORT = 60
 CORRELATION_THRESHOLD = 0.15
 FORWARD_RETURN_DAYS = 7
 LAGS = [1, 3, 7, 14]
@@ -58,6 +60,9 @@ FACTOR_LABELS = {
     "new_wallets": "New Wallet Activations",
     "priority_fees": "Priority Fees (Median)",
 }
+
+# Sources with limited history (use MIN_DATA_POINTS_SHORT)
+SHORT_HISTORY_SOURCES = {"new_wallets", "priority_fees"}
 
 # Factors where 7-day delta is used as an additional mode
 DELTA_FACTORS = {"stablecoin_supply"}
@@ -262,8 +267,9 @@ async def compute_correlations(engine) -> list[CorrelationResult]:
 
     for source in FACTOR_SOURCES:
         raw_data = await _load_raw_series(engine, source)
-        if len(raw_data) < MIN_DATA_POINTS:
-            logger.info(f"Skipping {source}: only {len(raw_data)} data points (need {MIN_DATA_POINTS})")
+        min_pts = MIN_DATA_POINTS_SHORT if source in SHORT_HISTORY_SOURCES else MIN_DATA_POINTS
+        if len(raw_data) < min_pts:
+            logger.info(f"Skipping {source}: only {len(raw_data)} data points (need {min_pts})")
             continue
 
         raw_series[source] = raw_data

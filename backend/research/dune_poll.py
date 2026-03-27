@@ -13,8 +13,8 @@ BASE = "https://api.dune.com/api/v1"
 DB_PATH = "candle.db"
 
 EXECUTIONS = {
-    "new_wallets": "01KMR3FYAKT734KPG0905GARPX",
-    "priority_fees": "01KMR3S8FRMHV9SGDC8RJFXT3B",
+    "new_wallets": "01KMR5E23NWMG05Q5ZT6YB7GEN",
+    "priority_fees": "01KMR5M0MBSEJ5K6KV46Y9S5MH",
 }
 
 
