@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import PageLayout from "../components/layout/PageLayout";
 import CandlestickChart, { type CandlestickChartHandle } from "../components/charts/CandlestickChart";
 import RangeSelector from "../components/charts/RangeSelector";
-import EcosystemCard from "../components/charts/EcosystemCard";
 import ScoredFactors from "../components/charts/ScoredFactors";
-import { fetchChart, fetchCorrelations, fetchEcosystem } from "../api/pulse";
-import type { ChartData, CorrelationsData, EcosystemData, ChartRange } from "../types/pulse";
+import { fetchChart, fetchCorrelations } from "../api/pulse";
+import type { ChartData, CorrelationsData, ChartRange } from "../types/pulse";
 
 const RANGE_DAYS: Record<ChartRange, number | null> = {
   "30d": 30,
@@ -18,7 +17,6 @@ export default function Pulse() {
   const [range, setRange] = useState<ChartRange>("90d");
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [correlations, setCorrelations] = useState<CorrelationsData | null>(null);
-  const [ecosystem, setEcosystem] = useState<EcosystemData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [excludedFactors, setExcludedFactors] = useState<Set<string>>(new Set());
@@ -41,14 +39,12 @@ export default function Pulse() {
     async function init() {
       setLoading(true);
       try {
-        const [chart, corr, eco] = await Promise.all([
+        const [chart, corr] = await Promise.all([
           fetchChart("all"),
           fetchCorrelations(),
-          fetchEcosystem(),
         ]);
         setChartData(chart);
         setCorrelations(corr);
-        setEcosystem(eco);
         setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load data");
@@ -82,16 +78,12 @@ export default function Pulse() {
     return () => clearTimeout(timer);
   }, [chartData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll chart + ecosystem every 60s to pick up new candles and scores
+  // Poll chart every 60s to pick up new candles and scores
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const [chart, eco] = await Promise.all([
-          fetchChart("all", Array.from(excludedFactors)),
-          fetchEcosystem(),
-        ]);
+        const chart = await fetchChart("all", Array.from(excludedFactors));
         setChartData(chart);
-        setEcosystem(eco);
       } catch {
         // Silently ignore poll failures
       }
@@ -176,19 +168,6 @@ export default function Pulse() {
             excludedFactors={excludedFactors}
             onToggleFactor={handleToggleFactor}
           />
-        </div>
-      )}
-
-      {ecosystem && ecosystem.metrics.length > 0 && (
-        <div className="mt-6">
-          <h3 className="text-xs text-terminal-muted uppercase tracking-wider mb-3">
-            Ecosystem Snapshot
-          </h3>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {ecosystem.metrics.map((m) => (
-              <EcosystemCard key={m.name} metric={m} />
-            ))}
-          </div>
         </div>
       )}
     </PageLayout>
