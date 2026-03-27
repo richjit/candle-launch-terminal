@@ -326,7 +326,7 @@ The UI handles cold start gracefully:
 
 ## Error Handling
 
-- **DexScreener down:** Show last known data with "stale" indicator. Launch tracking pauses but resumes when API returns. DexScreener rate limit (300 req/min) is handled by batching — if we hit 429, back off for 60s and retry.
+- **DexScreener down:** Show last known data with "stale" indicator (via `last_updated` field). Launch tracking pauses but resumes when API returns. If we hit a 429 rate limit, back off for 60s and retry.
 - **RPC errors:** Migration rate denominator freezes at last known value. Other metrics unaffected. Helius free tier budget tracked to avoid exceeding daily limit.
 - **DefiLlama down:** Volume and capital flow cards show stale data. Already handled by existing fetcher resilience.
 - **Data quality:** Tokens with $0 liquidity or flagged as honeypots (if detectable from DexScreener labels) are excluded from aggregation stats.
