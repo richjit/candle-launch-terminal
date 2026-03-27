@@ -30,10 +30,21 @@ def _recompute_score(factors_json: str, exclude: set[str]) -> float:
     """Recompute health score excluding certain factors.
 
     Uses the stored z-scores and weights, renormalizing weights
-    after excluding factors.
+    after excluding factors. Also excludes interaction factors
+    if any of their component base factors are excluded.
     """
     factors = json.loads(factors_json)
-    included = {k: v for k, v in factors.items() if k not in exclude}
+    # Exclude direct matches AND interaction factors containing excluded components
+    included = {}
+    for k, v in factors.items():
+        if k in exclude:
+            continue
+        # Check if this is an interaction factor (contains "_x_")
+        if "_x_" in k:
+            parts = k.split("_x_")
+            if any(p in exclude for p in parts):
+                continue
+        included[k] = v
 
     if not included:
         return 50.0  # neutral if no factors left

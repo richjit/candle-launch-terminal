@@ -27,6 +27,7 @@ async def get_correlations():
             "weight": r.weight,
             "in_score": r.in_score,
             "mode": r.mode,
+            "components": r.components,
         }
         for r in _correlations
     ]
