@@ -9,6 +9,7 @@ from app.ingestion.historical_defillama import (
     ingest_dex_volume_history,
     ingest_stablecoin_history,
 )
+from app.ingestion.technical_factors import compute_vol_regime
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,9 @@ async def run_backfill(
     results["tvl"] = await ingest_tvl_history(engine, http_client)
     results["dex_volume"] = await ingest_dex_volume_history(engine, http_client)
     results["stablecoin_supply"] = await ingest_stablecoin_history(engine, http_client)
+
+    # Compute technical factors from OHLCV data (must run after sol_csv ingestion)
+    results["vol_regime"] = await compute_vol_regime(engine)
 
     total = sum(results.values())
     if total > 0:

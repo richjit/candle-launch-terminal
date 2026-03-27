@@ -26,6 +26,7 @@ async def get_correlations():
             "optimal_lag_days": r.optimal_lag_days,
             "weight": r.weight,
             "in_score": r.in_score,
+            "mode": r.mode,
         }
         for r in _correlations
     ]

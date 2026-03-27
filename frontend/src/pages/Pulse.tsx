@@ -1,32 +1,34 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { IChartApi } from "lightweight-charts";
 import PageLayout from "../components/layout/PageLayout";
 import CandlestickChart, { type CandlestickChartHandle } from "../components/charts/CandlestickChart";
-import ScoreLine, { type ScoreLineHandle } from "../components/charts/ScoreLine";
 import RangeSelector from "../components/charts/RangeSelector";
 import EcosystemCard from "../components/charts/EcosystemCard";
 import ScoredFactors from "../components/charts/ScoredFactors";
 import { fetchChart, fetchCorrelations, fetchEcosystem } from "../api/pulse";
 import type { ChartData, CorrelationsData, EcosystemData, ChartRange } from "../types/pulse";
 
+const RANGE_DAYS: Record<ChartRange, number | null> = {
+  "30d": 30,
+  "90d": 90,
+  "1y": 365,
+  all: null,
+};
+
 export default function Pulse() {
-  const [range, setRange] = useState<ChartRange>("30d");
+  const [range, setRange] = useState<ChartRange>("90d");
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [correlations, setCorrelations] = useState<CorrelationsData | null>(null);
   const [ecosystem, setEcosystem] = useState<EcosystemData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [excludedFactors, setExcludedFactors] = useState<Set<string>>(new Set());
 
-  // Chart refs for bidirectional crosshair sync
-  const candleChartRef = useRef<CandlestickChartHandle>(null);
-  const scoreLineRef = useRef<ScoreLineHandle>(null);
-  const [candleChart, setCandleChart] = useState<IChartApi | null>(null);
-  const [scoreChart, setScoreChart] = useState<IChartApi | null>(null);
+  const chartRef = useRef<CandlestickChartHandle>(null);
 
-  // Load chart data when range changes
-  const loadChart = useCallback(async (r: ChartRange) => {
+  // Load chart data (all range, with current exclusions)
+  const loadChart = useCallback(async (exclude: Set<string>) => {
     try {
-      const data = await fetchChart(r);
+      const data = await fetchChart("all", Array.from(exclude));
       setChartData(data);
       setError(null);
     } catch (e) {
@@ -34,13 +36,13 @@ export default function Pulse() {
     }
   }, []);
 
-  // Initial load: chart + correlations + ecosystem in parallel
+  // Initial load
   useEffect(() => {
     async function init() {
       setLoading(true);
       try {
         const [chart, corr, eco] = await Promise.all([
-          fetchChart(range),
+          fetchChart("all"),
           fetchCorrelations(),
           fetchEcosystem(),
         ]);
@@ -55,17 +57,30 @@ export default function Pulse() {
       }
     }
     init();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Get chart refs after mount for bidirectional crosshair sync
+  // Set visible range on the chart
+  const applyVisibleRange = useCallback((r: ChartRange) => {
+    const chart = chartRef.current?.getChart();
+    if (!chart) return;
+
+    const days = RANGE_DAYS[r];
+    if (!days) {
+      chart.timeScale().fitContent();
+      return;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const from = now - days * 86400;
+    chart.timeScale().setVisibleRange({ from: from as any, to: now as any });
+  }, []);
+
+  // Apply initial visible range after chart mounts
   useEffect(() => {
-    if (candleChartRef.current) {
-      setCandleChart(candleChartRef.current.getChart());
-    }
-    if (scoreLineRef.current) {
-      setScoreChart(scoreLineRef.current.getChart());
-    }
-  }, [chartData]);
+    if (!chartData) return;
+    const timer = setTimeout(() => applyVisibleRange(range), 50);
+    return () => clearTimeout(timer);
+  }, [chartData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll ecosystem every 30s
   useEffect(() => {
@@ -80,23 +95,37 @@ export default function Pulse() {
     return () => clearInterval(interval);
   }, []);
 
-  // Range change handler
   const handleRangeChange = useCallback(
     (r: ChartRange) => {
       setRange(r);
-      loadChart(r);
+      applyVisibleRange(r);
+    },
+    [applyVisibleRange]
+  );
+
+  // Toggle a factor in/out of the score — refetch chart with new exclusions
+  const handleToggleFactor = useCallback(
+    (name: string) => {
+      setExcludedFactors((prev) => {
+        const next = new Set(prev);
+        if (next.has(name)) {
+          next.delete(name);
+        } else {
+          next.add(name);
+        }
+        loadChart(next);
+        return next;
+      });
     },
     [loadChart]
   );
 
-  // Current score from latest data point
   const currentScore = chartData?.scores?.length
     ? chartData.scores[chartData.scores.length - 1].score
     : null;
 
   return (
     <PageLayout title="Solana Market Pulse">
-      {/* Header with score and range selector */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
           {currentScore !== null && (
@@ -119,23 +148,13 @@ export default function Pulse() {
         <RangeSelector selected={range} onChange={handleRangeChange} />
       </div>
 
-      {/* Candlestick Chart + Score Line (synced crosshair) */}
       {chartData && chartData.candles.length > 0 && (
-        <>
-          <CandlestickChart
-            ref={candleChartRef}
-            candles={chartData.candles}
-            scores={chartData.scores}
-            height={400}
-            syncedChart={scoreChart}
-          />
-          <ScoreLine
-            ref={scoreLineRef}
-            scores={chartData.scores}
-            height={150}
-            syncedChart={candleChart}
-          />
-        </>
+        <CandlestickChart
+          ref={chartRef}
+          candles={chartData.candles}
+          scores={chartData.scores}
+          height={600}
+        />
       )}
 
       {loading && !chartData && (
@@ -146,14 +165,16 @@ export default function Pulse() {
         <div className="text-terminal-red text-center py-4 text-sm">{error}</div>
       )}
 
-      {/* Scored Factors */}
       {correlations && (
         <div className="mt-6">
-          <ScoredFactors factors={correlations.factors} />
+          <ScoredFactors
+            factors={correlations.factors}
+            excludedFactors={excludedFactors}
+            onToggleFactor={handleToggleFactor}
+          />
         </div>
       )}
 
-      {/* Ecosystem Cards */}
       {ecosystem && ecosystem.metrics.length > 0 && (
         <div className="mt-6">
           <h3 className="text-xs text-terminal-muted uppercase tracking-wider mb-3">

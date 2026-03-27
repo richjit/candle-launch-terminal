@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 from sqlalchemy import select
@@ -15,7 +15,7 @@ FORWARD_RETURN_DAYS = 7
 LAGS = [1, 3, 7, 14]
 
 # Sources that map to scorable factors (source_name in historical_data)
-FACTOR_SOURCES = ["tvl", "fear_greed", "dex_volume", "stablecoin_supply"]
+FACTOR_SOURCES = ["tvl", "fear_greed", "dex_volume", "stablecoin_supply", "vol_regime"]
 
 
 @dataclass
@@ -26,6 +26,7 @@ class CorrelationResult:
     optimal_lag_days: int
     weight: float  # normalized |r|, sums to 1.0 across all in_score factors
     in_score: bool  # True if |r| >= CORRELATION_THRESHOLD and enough data
+    mode: str = "returns"  # "returns" or "level" — how this factor is used in scoring
 
 
 FACTOR_LABELS = {
@@ -33,10 +34,16 @@ FACTOR_LABELS = {
     "fear_greed": "Fear & Greed Index",
     "dex_volume": "DEX Volume",
     "stablecoin_supply": "Stablecoin Supply (7d delta)",
+    "vol_regime": "Volatility Regime",
 }
 
 # Factors that need 7-day delta transformation before correlation
 DELTA_FACTORS = {"stablecoin_supply"}
+
+# Factors that are state indicators (test level-vs-forward-return, not return-vs-return)
+# The engine tests BOTH modes and picks the stronger one automatically,
+# but listing here lets us hint that level mode is expected to be stronger.
+LEVEL_FACTORS = {"vol_regime"}
 
 
 async def _load_series(engine, source: str) -> dict[date, float]:
@@ -56,7 +63,6 @@ async def _load_series(engine, source: str) -> dict[date, float]:
         return {d: v for d, v in raw}
 
     # Compute 7-day delta: value[i] - value[i-7]
-    from datetime import timedelta
     raw_dict = {d: v for d, v in raw}
     delta_series = {}
     for d, v in raw:
@@ -71,7 +77,6 @@ def _compute_forward_returns(prices: dict[date, float], days: int = 7) -> dict[d
     sorted_dates = sorted(prices.keys())
     returns = {}
     for i, d in enumerate(sorted_dates):
-        # Find the price `days` forward
         target_idx = i + days
         if target_idx < len(sorted_dates):
             future_price = prices[sorted_dates[target_idx]]
@@ -98,28 +103,25 @@ def _compute_factor_returns(
 
 
 def _pearson_at_lag(
-    factor_returns: dict[date, float],
+    factor_series: dict[date, float],
     forward_returns: dict[date, float],
     lag: int,
 ) -> float | None:
-    """Compute Pearson r between factor returns (lagged) and SOL forward returns."""
-    from datetime import timedelta
-
+    """Compute Pearson r between a factor series (lagged) and SOL forward returns."""
     pairs_x = []
     pairs_y = []
     for d, ret in forward_returns.items():
         lagged_date = d - timedelta(days=lag)
-        if lagged_date in factor_returns:
-            pairs_x.append(factor_returns[lagged_date])
+        if lagged_date in factor_series:
+            pairs_x.append(factor_series[lagged_date])
             pairs_y.append(ret)
 
-    if len(pairs_x) < 30:  # need minimum overlap
+    if len(pairs_x) < 30:
         return None
 
     x = np.array(pairs_x)
     y = np.array(pairs_y)
 
-    # Handle constant arrays
     if np.std(x) == 0 or np.std(y) == 0:
         return 0.0
 
@@ -127,12 +129,32 @@ def _pearson_at_lag(
     return float(r) if np.isfinite(r) else None
 
 
-async def compute_correlations(engine) -> list[CorrelationResult]:
-    """Compute rolling Pearson correlation for each factor against SOL forward returns.
+def _best_correlation(
+    factor_series: dict[date, float],
+    forward_returns: dict[date, float],
+) -> tuple[float | None, int]:
+    """Find best |r| across all lags. Returns (best_r, best_lag)."""
+    best_r = None
+    best_lag = LAGS[0]
+    for lag in LAGS:
+        r = _pearson_at_lag(factor_series, forward_returns, lag)
+        if r is not None and (best_r is None or abs(r) > abs(best_r)):
+            best_r = r
+            best_lag = lag
+    return best_r, best_lag
 
-    Returns a list of CorrelationResult with weights normalized so in_score factors sum to 1.0.
+
+async def compute_correlations(engine) -> list[CorrelationResult]:
+    """Compute correlation for each factor against SOL forward returns.
+
+    Tests two modes for each factor:
+    - "returns": correlation between factor % change and SOL forward returns
+      (good for directional factors like TVL, Fear & Greed)
+    - "level": correlation between factor level and SOL forward returns
+      (good for state indicators like vol_regime where the level matters)
+
+    Picks whichever mode gives a stronger |r| for each factor.
     """
-    # Load SOL price data
     sol_prices = await _load_series(engine, "sol_ohlcv")
     if len(sol_prices) < MIN_DATA_POINTS:
         logger.warning(f"Only {len(sol_prices)} SOL price points, need {MIN_DATA_POINTS}")
@@ -147,28 +169,38 @@ async def compute_correlations(engine) -> list[CorrelationResult]:
             logger.info(f"Skipping {source}: only {len(factor_data)} data points (need {MIN_DATA_POINTS})")
             continue
 
-        # Convert factor to returns for correlation (same direction as SOL forward returns)
+        # Mode 1: return-vs-return correlation
         factor_returns = _compute_factor_returns(factor_data, FORWARD_RETURN_DAYS)
+        ret_r, ret_lag = _best_correlation(factor_returns, forward_returns)
 
-        # Test each lag, pick strongest |r|
-        best_r = None
-        best_lag = LAGS[0]
-        for lag in LAGS:
-            r = _pearson_at_lag(factor_returns, forward_returns, lag)
-            if r is not None and (best_r is None or abs(r) > abs(best_r)):
-                best_r = r
-                best_lag = lag
+        # Mode 2: level-vs-forward-return correlation
+        lvl_r, lvl_lag = _best_correlation(factor_data, forward_returns)
 
-        if best_r is None:
+        # Pick the stronger mode
+        ret_abs = abs(ret_r) if ret_r is not None else 0
+        lvl_abs = abs(lvl_r) if lvl_r is not None else 0
+
+        if ret_abs >= lvl_abs and ret_r is not None:
+            best_r, best_lag, mode = ret_r, ret_lag, "returns"
+        elif lvl_r is not None:
+            best_r, best_lag, mode = lvl_r, lvl_lag, "level"
+        else:
             continue
+
+        logger.info(
+            f"[{source}] returns r={ret_r:.4f} lag={ret_lag}d | "
+            f"level r={lvl_r:.4f} lag={lvl_lag}d | "
+            f"picked {mode} (r={best_r:.4f})"
+        )
 
         results.append(CorrelationResult(
             name=source,
             label=FACTOR_LABELS.get(source, source),
             correlation=round(best_r, 4),
             optimal_lag_days=best_lag,
-            weight=0.0,  # placeholder, normalized below
+            weight=0.0,
             in_score=abs(best_r) >= CORRELATION_THRESHOLD,
+            mode=mode,
         ))
 
     # Normalize weights for in_score factors

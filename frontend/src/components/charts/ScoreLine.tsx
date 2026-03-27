@@ -1,19 +1,24 @@
 import { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
-import { createChart, AreaSeries, type IChartApi, ColorType } from "lightweight-charts";
+import { createChart, LineSeries, ColorType, type IChartApi } from "lightweight-charts";
 import type { ScorePoint } from "../../types/pulse";
 
 interface ScoreLineProps {
   scores: ScorePoint[];
   height?: number;
-  syncedChart?: IChartApi | null;
 }
 
 export interface ScoreLineHandle {
   getChart: () => IChartApi | null;
 }
 
+function scoreColor(score: number): string {
+  if (score >= 70) return "#00e676";
+  if (score <= 30) return "#ff1744";
+  return "#f0b90b";
+}
+
 const ScoreLine = forwardRef<ScoreLineHandle, ScoreLineProps>(
-  function ScoreLine({ scores, height = 150, syncedChart }, ref) {
+  function ScoreLine({ scores, height = 150 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
 
@@ -47,23 +52,27 @@ const ScoreLine = forwardRef<ScoreLineHandle, ScoreLineProps>(
         },
       });
 
-      const lineSeries = chart.addSeries(AreaSeries, {
-        lineColor: "#f0b90b",
-        topColor: "rgba(240, 185, 11, 0.2)",
-        bottomColor: "rgba(240, 185, 11, 0.0)",
+      const lineSeries = chart.addSeries(LineSeries, {
+        color: "#f0b90b",
         lineWidth: 2,
         priceFormat: { type: "custom", formatter: (price: number) => price.toFixed(0) },
+        lastValueVisible: true,
+        priceLineVisible: false,
       });
 
       chartRef.current = chart;
 
-      // Crosshair sync deferred — requires series reference across chart boundaries
-
       if (scores.length > 0) {
         lineSeries.setData(
-          scores.map((s) => ({ time: s.time as any, value: s.score }))
+          scores.map((s) => ({
+            time: s.time as any,
+            value: s.score,
+            color: scoreColor(s.score),
+          }))
         );
       }
+
+      // Don't fitContent here — parent controls visible range
 
       const resizeObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
@@ -77,12 +86,14 @@ const ScoreLine = forwardRef<ScoreLineHandle, ScoreLineProps>(
         chart.remove();
         chartRef.current = null;
       };
-    }, [height, scores, syncedChart]);
+    }, [height, scores]);
 
     return (
-      <div className="bg-terminal-card border border-terminal-border border-t-0 p-2">
-        <div className="text-xs text-terminal-muted mb-1 px-2">Health Score (0–100)</div>
-        <div ref={containerRef} />
+      <div className="border border-terminal-border border-t-0 p-2 pt-0" style={{ background: "#12121a" }}>
+        <div className="text-xs text-terminal-muted mb-1 px-2 pt-1 border-t border-terminal-border/50">
+          Health Score (0-100)
+        </div>
+        <div ref={containerRef} style={{ borderRadius: "0 0 4px 4px", overflow: "hidden" }} />
       </div>
     );
   }

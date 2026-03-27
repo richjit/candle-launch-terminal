@@ -29,6 +29,8 @@ async def ingest_sol_csv(engine, csv_path: str) -> int:
     with open(csv_path, newline="") as f:
         reader = csv.reader(f)
         header = next(reader)
+        # Detect if Volume column exists (Binance export has it at index 5)
+        has_volume = len(header) > 5 and header[5].strip().lower() == "volume"
         for row in reader:
             if len(row) < 5:
                 continue
@@ -37,17 +39,21 @@ async def ingest_sol_csv(engine, csv_path: str) -> int:
             high = float(row[2])
             low = float(row[3])
             close = float(row[4])
+            volume = float(row[5]) if has_volume and len(row) > 5 and row[5].strip() else None
             dt = datetime.fromtimestamp(timestamp, tz=timezone.utc).date()
+            meta = {
+                "open": open_price,
+                "high": high,
+                "low": low,
+                "close": close,
+            }
+            if volume is not None:
+                meta["volume"] = volume
             rows_to_insert.append(HistoricalData(
                 source=SOURCE,
                 date=dt,
                 value=close,
-                metadata_json=json.dumps({
-                    "open": open_price,
-                    "high": high,
-                    "low": low,
-                    "close": close,
-                }),
+                metadata_json=json.dumps(meta),
             ))
 
     async with get_session(engine) as session:

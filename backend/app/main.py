@@ -23,6 +23,7 @@ from app.routers.pulse_ecosystem import router as ecosystem_router, set_cache as
 from app.ingestion.runner import run_backfill
 from app.analysis.correlation import compute_correlations
 from app.analysis.score_backfill import backfill_scores
+from app.candle_builder import build_daily_candles
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
@@ -44,7 +45,7 @@ async def lifespan(app: FastAPI):
     # CSV path is relative to project root (one level up from backend/)
     import os
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    csv_path = os.path.join(project_root, "data", "CRYPTO_SOLUSD, 1D_81fb0.csv")
+    csv_path = os.path.join(project_root, "data", "BINANCE_SOLUSD, 1D_36137.csv")
     await run_backfill(db_engine, http_client, sol_csv_path=csv_path)
 
     # Compute correlations and backfill scores
@@ -79,6 +80,20 @@ async def lifespan(app: FastAPI):
     # Run initial fetch
     for f in all_fetchers:
         await f.run()
+
+    # Build daily candles from live price data (extends chart beyond CSV)
+    await build_daily_candles(db_engine)
+
+    # Schedule candle builder to run every 5 minutes
+    from apscheduler.triggers.interval import IntervalTrigger
+    scheduler.add_job(
+        build_daily_candles,
+        args=[db_engine],
+        trigger=IntervalTrigger(seconds=300),
+        id="build_daily_candles",
+        replace_existing=True,
+        max_instances=1,
+    )
 
     scheduler.start()
 
