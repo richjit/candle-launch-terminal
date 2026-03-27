@@ -17,11 +17,15 @@ Replace the current Pulse page with a price-focused dashboard centered on a SOL 
 
 ### Historical Data Ingestion (one-time backfill on startup)
 
-1. **SOL OHLCV** — import from `data/CRYPTO_SOLUSD, 1D_81fb0.csv` (2177 daily candles, April 2020–present). Columns: `time` (unix), `open`, `high`, `low`, `close`.
+1. **SOL OHLCV** — import from `data/CRYPTO_SOLUSD, 1D_81fb0.csv` (2177 daily candles, April 2020–present). Columns: `time` (unix), `open`, `high`, `low`, `close`, plus a trailing empty column `#1` to ignore. Parser should use only the first 5 columns.
 2. **Fear & Greed Index** — fetch from `https://api.alternative.me/fng/?limit=0` (full daily history since 2018).
 3. **Solana TVL** — fetch from DeFi Llama `https://api.llama.fi/v2/historicalChainTvl/Solana` (full daily history).
-4. **DEX Volume** — fetch from DeFi Llama `https://api.llama.fi/overview/dexs/solana` (verify historical depth; if unavailable, exclude from scored factors).
-5. **Stablecoin flows** — fetch from DeFi Llama stablecoin endpoints (verify historical depth; if unavailable, exclude from scored factors).
+4. **DEX Volume** — fetch from DeFi Llama `https://api.llama.fi/overview/dexs/solana` (available from ~Sept 2021). Include as scored factor only if at least 365 daily data points exist.
+5. **Stablecoin supply on Solana** — fetch from DeFi Llama `https://stablecoins.llama.fi/stablecoincharts/Solana` (returns daily total stablecoin circulating supply). The scored factor is the **7-day change** (delta) in supply — positive delta = capital inflow, negative = outflow. Include only if at least 365 data points exist.
+
+**Minimum data requirement:** A factor must have at least 365 daily data points to be included in correlation analysis and scoring. Factors with less data are excluded from the score but may still appear as informational.
+
+**Partial availability during backfill:** When computing historical scores, each day uses only the factors that have data at that date. The `factors_available` / `factors_total` columns in `daily_scores` track this. Early dates (e.g., 2020) will have fewer factors than recent dates.
 
 All historical data is stored in the database for reuse. The backfill runs once — subsequent startups skip if data already exists.
 
@@ -31,7 +35,9 @@ For each candidate factor, compute **rolling Pearson correlation** against SOL *
 
 - Test multiple lags: 1d, 3d, 7d, 14d
 - Select the lag with the strongest |correlation|
-- Factors with |r| below a minimum threshold (e.g., 0.05) are flagged as "informational only" — shown on the page but excluded from the score
+- Factors with |r| below **0.15** are flagged as "informational only" — shown on the page but excluded from the score (0.15 filters out noise while keeping meaningfully correlated signals)
+
+**Boundary handling:** Correlation is computed on data up to T-7, since the most recent 7 days have no completed forward returns yet. As new days complete, correlations are updated. Recomputed daily.
 
 Output per factor:
 - Correlation coefficient (r)
@@ -45,10 +51,9 @@ Each scored factor's weight = |correlation coefficient| normalized so weights su
 ### Score Computation
 
 For each historical day (and for live data going forward):
-1. Compute z-score for each factor using its **own rolling historical mean and std** (not hardcoded baselines)
-2. Multiply each z-score by its correlation-derived weight
-3. Flip sign for negatively-correlated factors (so the score direction is always "higher = more bullish")
-4. Sum weighted z-scores → pass through `50 + 50 * tanh(z / 2)` → clamp to 0–100
+1. Compute z-score for each factor using its **own 90-day rolling mean and std** (not hardcoded baselines). 90-day window balances responsiveness with stability.
+2. Compute weighted signed z-score: `sign(r) * |weight| * z_score` — this ensures negatively-correlated factors (where higher value = bearish) contribute correctly without a separate sign-flip step.
+3. Sum all weighted signed z-scores → pass through `50 + 50 * tanh(z / 2)` → clamp to 0–100
 
 ### Score Storage
 
@@ -179,9 +184,9 @@ Returns live supplementary metrics with sparkline data. Replaces the old flat `/
 }
 ```
 
-### Existing Endpoint Changes
+### Removed Endpoint
 
-**`GET /api/pulse`** — reworked to return the new page structure: current score + factor breakdown. No longer returns the flat metric dump.
+**`GET /api/pulse`** — removed. The three new endpoints (`/chart`, `/correlations`, `/ecosystem`) fully replace it. The frontend calls them in parallel on load.
 
 ### Data Flow
 
@@ -203,7 +208,7 @@ Returns live supplementary metrics with sparkline data. Replaces the old flat `/
 - Historical score backfill (compute score for every historical day using rolling stats, store in `daily_scores` table)
 - New `daily_scores` DB table
 - New API endpoints: `/pulse/chart`, `/pulse/correlations`, `/pulse/ecosystem`
-- Reworked `/api/pulse` endpoint
+- Remove old `/api/pulse` endpoint (replaced by the three new endpoints)
 - Frontend: swap Recharts for lightweight-charts
 - Candlestick chart with score-based green/red background gradient
 - Synced health score panel below
