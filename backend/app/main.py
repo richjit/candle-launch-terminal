@@ -17,7 +17,12 @@ from app.fetchers.defillama import DefiLlamaFetcher
 from app.fetchers.fear_greed import FearGreedFetcher
 from app.fetchers.google_trends import GoogleTrendsFetcher
 from app.routers.health import router as health_router, set_fetchers
-from app.routers.pulse import router as pulse_router, set_cache as set_pulse_cache
+from app.routers.pulse_chart import router as chart_router, set_engine as set_chart_engine
+from app.routers.pulse_correlations import router as correlations_router, set_correlations
+from app.routers.pulse_ecosystem import router as ecosystem_router, set_cache as set_ecosystem_cache, set_engine as set_ecosystem_engine
+from app.ingestion.runner import run_backfill
+from app.analysis.correlation import compute_correlations
+from app.analysis.score_backfill import backfill_scores
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
@@ -35,6 +40,17 @@ async def lifespan(app: FastAPI):
     db_engine = await init_db(settings.database_url)
     http_client = httpx.AsyncClient()
 
+    # Run historical data backfill (idempotent)
+    await run_backfill(db_engine, http_client)
+
+    # Compute correlations and backfill scores
+    correlations = await compute_correlations(db_engine)
+    set_correlations(correlations)
+    await backfill_scores(db_engine, correlations)
+
+    # Set engine for chart endpoint
+    set_chart_engine(db_engine)
+
     # Create fetchers
     dexscreener = DexScreenerFetcher(cache=cache, http_client=http_client, db_engine=db_engine)
     solana_rpc = SolanaRpcFetcher(cache=cache, http_client=http_client, rpc_url=settings.solana_rpc_url, db_engine=db_engine)
@@ -45,7 +61,8 @@ async def lifespan(app: FastAPI):
 
     all_fetchers = [dexscreener, solana_rpc, coingecko, defillama, fear_greed, google_trends]
     set_fetchers(all_fetchers)
-    set_pulse_cache(cache)
+    set_ecosystem_cache(cache)
+    set_ecosystem_engine(db_engine)
 
     # Register scheduled jobs
     register_fetcher_job(dexscreener, settings.fetch_interval_dexscreener)
@@ -80,4 +97,6 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
-app.include_router(pulse_router)
+app.include_router(chart_router)
+app.include_router(correlations_router)
+app.include_router(ecosystem_router)
