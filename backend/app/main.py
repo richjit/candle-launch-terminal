@@ -41,7 +41,11 @@ async def lifespan(app: FastAPI):
     http_client = httpx.AsyncClient()
 
     # Run historical data backfill (idempotent)
-    await run_backfill(db_engine, http_client)
+    # CSV path is relative to project root (one level up from backend/)
+    import os
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    csv_path = os.path.join(project_root, "data", "CRYPTO_SOLUSD, 1D_81fb0.csv")
+    await run_backfill(db_engine, http_client, sol_csv_path=csv_path)
 
     # Compute correlations and backfill scores
     correlations = await compute_correlations(db_engine)
