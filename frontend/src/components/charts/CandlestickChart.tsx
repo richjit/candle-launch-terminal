@@ -15,22 +15,22 @@ interface CandlestickChartProps {
 function scoreToColors(score: number): { top: string; bottom: string } {
   if (score >= 70) {
     return {
-      top: "rgba(0, 230, 118, 0.15)",
-      bottom: "rgba(0, 230, 118, 0.02)",
+      top: "rgba(0, 230, 118, 0.35)",
+      bottom: "rgba(0, 230, 118, 0.05)",
     };
   }
   if (score <= 30) {
     return {
-      top: "rgba(255, 23, 68, 0.15)",
-      bottom: "rgba(255, 23, 68, 0.02)",
+      top: "rgba(255, 23, 68, 0.35)",
+      bottom: "rgba(255, 23, 68, 0.05)",
     };
   }
   const t = (score - 30) / 40;
   const r = Math.round(255 * (1 - t));
   const g = Math.round(230 * t);
   return {
-    top: `rgba(${r}, ${g}, 68, 0.10)`,
-    bottom: `rgba(${r}, ${g}, 68, 0.02)`,
+    top: `rgba(${r}, ${g}, 68, 0.25)`,
+    bottom: `rgba(${r}, ${g}, 68, 0.05)`,
   };
 }
 
