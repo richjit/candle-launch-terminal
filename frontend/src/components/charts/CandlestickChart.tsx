@@ -10,20 +10,17 @@ interface CandlestickChartProps {
   candles: Candle[];
   scores: ScorePoint[];
   height?: number;
-  syncedChart?: IChartApi | null;
 }
 
-function scoreToColors(score: number): { line: string; top: string; bottom: string } {
+function scoreToColors(score: number): { top: string; bottom: string } {
   if (score >= 70) {
     return {
-      line: "rgba(0, 230, 118, 0)",
       top: "rgba(0, 230, 118, 0.15)",
       bottom: "rgba(0, 230, 118, 0.02)",
     };
   }
   if (score <= 30) {
     return {
-      line: "rgba(255, 23, 68, 0)",
       top: "rgba(255, 23, 68, 0.15)",
       bottom: "rgba(255, 23, 68, 0.02)",
     };
@@ -32,17 +29,15 @@ function scoreToColors(score: number): { line: string; top: string; bottom: stri
   const r = Math.round(255 * (1 - t));
   const g = Math.round(230 * t);
   return {
-    line: `rgba(${r}, ${g}, 68, 0)`,
     top: `rgba(${r}, ${g}, 68, 0.10)`,
     bottom: `rgba(${r}, ${g}, 68, 0.02)`,
   };
 }
 
 const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickChartProps>(
-  function CandlestickChart({ candles, scores, height = 400, syncedChart }, ref) {
+  function CandlestickChart({ candles, scores, height = 400 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
   useImperativeHandle(ref, () => ({
     getChart: () => chartRef.current,
@@ -83,11 +78,27 @@ const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickChartProp
     });
 
     chartRef.current = chart;
-    candleSeriesRef.current = candleSeries;
 
-    // Sync crosshair with the other chart
-    // Note: crosshair sync deferred — setCrosshairPosition requires a series reference
-    // which we don't have across chart boundaries in this architecture
+    // Set candlestick data
+    if (candles.length > 0) {
+      candleSeries.setData(
+        candles.map((c) => ({
+          time: c.time as any,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+        }))
+      );
+      chart.timeScale().fitContent();
+    }
+
+    // Score-based background gradient via CSS
+    if (scores.length > 0) {
+      const avgScore = scores.reduce((sum, s) => sum + s.score, 0) / scores.length;
+      const colors = scoreToColors(avgScore);
+      containerRef.current.style.background = `linear-gradient(to bottom, ${colors.top}, ${colors.bottom})`;
+    }
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -100,37 +111,8 @@ const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickChartProp
       resizeObserver.disconnect();
       chart.remove();
       chartRef.current = null;
-      candleSeriesRef.current = null;
     };
-  }, [height, syncedChart]);
-
-  // Update data
-  useEffect(() => {
-    if (!candleSeriesRef.current || !chartRef.current || candles.length === 0) return;
-
-    candleSeriesRef.current.setData(
-      candles.map((c) => ({
-        time: c.time as any,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-      }))
-    );
-
-    chartRef.current.timeScale().fitContent();
-
-    // Score-based background gradient via CSS
-    if (scores.length > 0) {
-      const avgScore = scores.reduce((sum, s) => sum + s.score, 0) / scores.length;
-      const colors = scoreToColors(avgScore);
-
-      const container = containerRef.current;
-      if (container) {
-        container.style.background = `linear-gradient(to bottom, ${colors.top}, ${colors.bottom})`;
-      }
-    }
-  }, [candles, scores]);
+  }, [height, candles, scores]);
 
   return (
     <div className="bg-terminal-card border border-terminal-border p-2">
