@@ -11,6 +11,7 @@ from app.ingestion.historical_defillama import (
     ingest_stablecoin_history,
 )
 from app.ingestion.technical_factors import compute_vol_regime
+from app.ingestion.dune import ingest_new_wallets, ingest_priority_fees
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,10 @@ async def run_backfill(
     results["dex_volume"] = await ingest_dex_volume_history(engine, http_client)
     results["chain_fees"] = await ingest_fees_history(engine, http_client)
     results["stablecoin_supply"] = await ingest_stablecoin_history(engine, http_client)
+
+    # Dune Analytics on-chain metrics (requires DUNE_API_KEY env var)
+    results["new_wallets"] = await ingest_new_wallets(engine, http_client)
+    results["priority_fees"] = await ingest_priority_fees(engine, http_client)
 
     # Compute technical factors from OHLCV data (must run after sol_csv ingestion)
     results["vol_regime"] = await compute_vol_regime(engine)

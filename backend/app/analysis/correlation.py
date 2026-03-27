@@ -29,7 +29,10 @@ FORWARD_RETURN_DAYS = 7
 LAGS = [1, 3, 7, 14]
 
 # Sources that map to scorable factors (source_name in historical_data)
-FACTOR_SOURCES = ["tvl", "fear_greed", "dex_volume", "stablecoin_supply", "vol_regime", "chain_fees"]
+FACTOR_SOURCES = [
+    "tvl", "fear_greed", "dex_volume", "stablecoin_supply",
+    "vol_regime", "chain_fees", "new_wallets", "priority_fees",
+]
 
 
 @dataclass
@@ -52,6 +55,8 @@ FACTOR_LABELS = {
     "stablecoin_supply": "Stablecoin Supply",
     "vol_regime": "Volatility Regime",
     "chain_fees": "Chain Fee Revenue",
+    "new_wallets": "New Wallet Activations",
+    "priority_fees": "Priority Fees (Median)",
 }
 
 # Factors where 7-day delta is used as an additional mode
