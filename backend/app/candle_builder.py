@@ -35,8 +35,9 @@ async def build_daily_candles(engine) -> int:
             logger.warning("No existing sol_ohlcv data — nothing to extend")
             return 0
 
-        # Find all sol_price records after the last candle date
-        start_from = last_date + timedelta(days=1)
+        # Find all sol_price records from today onward (update today's candle + extend)
+        today = date.today()
+        start_from = min(last_date, today)
         price_query = (
             select(MetricData)
             .where(MetricData.source == "coingecko")
