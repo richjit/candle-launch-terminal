@@ -16,44 +16,48 @@ A launch intelligence dashboard that answers: "If I launch a token today, what c
 
 | Source | What It Provides | Fetch Interval |
 |---|---|---|
-| **DexScreener API** (free) | Token profiles, price, volume, buys/sells, liquidity, market cap | 2 min |
+| **GeckoTerminal API** (free) | New Solana pool discovery — catches ALL migrated tokens | 2 min |
+| **DexScreener API** (free) | Token performance data: price, volume, buys/sells, liquidity, market cap | 2 min |
 | **Solana RPC** (Helius free) | Token creation counts per launchpad program | 5 min |
 | **DefiLlama API** (free, existing) | DEX volume, bridge inflows/outflows, stablecoin supply | 5 min |
 
-### DexScreener API Usage
+### GeckoTerminal for Discovery
 
-DexScreener does **not** have a bulk "new Solana pairs" endpoint. We use a two-step approach:
+GeckoTerminal provides a free endpoint that returns **all** new Solana DEX pools — not just tokens that paid for a profile.
 
-**Discovery — `GET /token-profiles/latest/v1`:**
-- Returns the 30 most recently updated token profiles across all chains
-- Filter to Solana tokens (`chainId: "solana"`)
-- Provides token addresses for further lookup
-- No authentication required; rate limits are undocumented — we assume a conservative ceiling of ~60 req/min and stay well below it
-- **Limitation:** Only 30 tokens per call, no pagination or filtering. During high-activity periods (pump.fun creates ~10 tokens/min), this endpoint may miss launches. Only tokens with DexScreener profiles appear here.
+**`GET https://api.geckoterminal.com/api/v2/networks/solana/new_pools`:**
+- Returns ALL newly created pools on Solana (Raydium, Meteora, Orca, etc.)
+- Free, no authentication required
+- Rate limit: 30 requests/minute
+- Response includes: pool address, base/quote tokens, price, FDV, market cap, volume, transaction counts
+- We poll every 2 minutes (well within rate limit)
+- Paginated — can fetch multiple pages to catch up if needed
 
-**Supplementary discovery — Helius RPC websocket (future enhancement):**
-- Subscribe to new token account creation events on Raydium/Meteora programs
-- Would catch launches that DexScreener's profile endpoint misses
-- Not required for MVP — the 30-token polling window captures enough for meaningful aggregate stats, and missed individual tokens don't skew medians significantly
+This is critical: DexScreener's `/token-profiles/latest/v1` only returns tokens that have **paid** for a DexScreener profile, which would miss the vast majority of launches.
 
-**Token Data — `GET /tokens/v1/solana/{addresses}`:**
+### DexScreener for Token Data
+
+Once we discover tokens via GeckoTerminal, we use DexScreener for detailed performance tracking:
+
+**`GET /tokens/v1/solana/{addresses}`:**
 - Accepts comma-separated token addresses (up to 30 per request)
 - Returns pairs with `dexId`, price, volume (`h1`, `h6`, `h24`), market cap, txns (buys/sells by timeframe), liquidity
-- This is how we get all performance data for tracked tokens
+- Rate limits undocumented — we stay conservative at ~10 req/min
 
 **Batching strategy:**
-- Discovery poll: 1 request every 2 minutes
-- Token updates: batch 30 addresses per request
+- Discovery poll (GeckoTerminal): 1 request every 2 minutes
+- Token data updates (DexScreener): batch 30 addresses per request
 - At 500 tracked tokens needing updates: ~17 requests per cycle
-- Total: ~18 requests per 2-min cycle = 9 req/min (conservatively safe)
+- Total DexScreener: ~17 requests per 2-min cycle = ~9 req/min (conservatively safe)
 - As token count grows, spread update batches across cycles (round-robin)
 
-**Fallback:** If DexScreener is unavailable, we pause discovery but retain all existing tracked data. The UI shows a "stale data" indicator.
+**Fallback:** If GeckoTerminal is down, discovery pauses but existing token tracking continues via DexScreener. If DexScreener is down, we retain last known data and show a "stale" indicator.
 
 ### Launchpad Identification
 
-Tokens are tagged by launchpad source based on:
-- `dexId` field from DexScreener pair data (e.g., `"pumpswap"` for pump.fun tokens)
+Tokens are tagged by launchpad source using multiple signals:
+- GeckoTerminal pool data includes the DEX name (e.g., "PumpSwap" for pump.fun migrations)
+- DexScreener `dexId` field (e.g., `"pumpswap"` for pump.fun tokens)
 - Token address patterns (e.g., pump.fun addresses end in `pump`)
 - Known launchpad program addresses for RPC counting
 
@@ -179,16 +183,17 @@ Unique constraint on (date, launchpad).
 These are standalone async functions scheduled via APScheduler (same pattern as `build_daily_candles` and `compute_today_score`), **not** BaseFetcher subclasses. The existing BaseFetcher pattern stores simple key-value metrics in MetricData; launch tracking needs its own tables and more complex logic.
 
 **`poll_new_launches`** — runs every 2 minutes:
-1. Calls `GET /token-profiles/latest/v1` to discover new Solana tokens
-2. Filters to tokens with launchpad labels (pump.fun, bonk, bags, candle)
-3. For new tokens not yet in `launch_tokens`: creates rows with `created_at=now`
-4. Batches all non-complete tokens (up to 30 per request) and calls `GET /tokens/v1/solana/{addresses}` to get current data
-5. Updates each tracked token:
+1. Calls GeckoTerminal `GET /api/v2/networks/solana/new_pools` to discover ALL new Solana pairs
+2. Identifies launchpad source from DEX name (e.g., "PumpSwap"), token address patterns, and known program addresses
+3. Filters out non-launchpad tokens (e.g., manual Raydium pool creates that aren't from a launchpad)
+4. For new tokens not yet in `launch_tokens`: creates rows with `created_at=now`
+5. Batches all non-complete tokens (up to 30 per request) and calls DexScreener `GET /tokens/v1/solana/{addresses}` for detailed performance data
+6. Updates each tracked token:
    - Recalculates peak mcap (running max per checkpoint window)
    - Snapshots 1h/24h/7d metrics when those time windows elapse
    - Updates time_to_peak_minutes if current mcap > previous peak (within 24h window)
    - Checks if still alive (volume > $100 in last hour from DexScreener txns data)
-6. After 7d from creation: sets `checkpoint_complete=True`, stops further updates
+7. After 7d from creation: sets `checkpoint_complete=True`, stops further updates
 
 **`poll_launchpad_creates`** — runs every 5 minutes:
 - For each launchpad with a known program address:
@@ -326,7 +331,8 @@ The UI handles cold start gracefully:
 
 ## Error Handling
 
-- **DexScreener down:** Show last known data with "stale" indicator (via `last_updated` field). Launch tracking pauses but resumes when API returns. If we hit a 429 rate limit, back off for 60s and retry.
+- **GeckoTerminal down:** New token discovery pauses, but existing token tracking continues via DexScreener. Resumes when API returns.
+- **DexScreener down:** Show last known data with "stale" indicator (via `last_updated` field). Discovery still works via GeckoTerminal but detailed metrics freeze. If we hit a 429 rate limit, back off for 60s and retry.
 - **RPC errors:** Migration rate denominator freezes at last known value. Other metrics unaffected. Helius free tier budget tracked to avoid exceeding daily limit.
 - **DefiLlama down:** Volume and capital flow cards show stale data. Already handled by existing fetcher resilience.
 - **Data quality:** Tokens with $0 liquidity or flagged as honeypots (if detectable from DexScreener labels) are excluded from aggregation stats.
