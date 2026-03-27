@@ -1,5 +1,5 @@
 import { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
-import { createChart, type IChartApi, ColorType } from "lightweight-charts";
+import { createChart, AreaSeries, type IChartApi, ColorType } from "lightweight-charts";
 import type { ScorePoint } from "../../types/pulse";
 
 interface ScoreLineProps {
@@ -47,7 +47,7 @@ const ScoreLine = forwardRef<ScoreLineHandle, ScoreLineProps>(
         },
       });
 
-      const lineSeries = chart.addAreaSeries({
+      const lineSeries = chart.addSeries(AreaSeries, {
         lineColor: "#f0b90b",
         topColor: "rgba(240, 185, 11, 0.2)",
         bottomColor: "rgba(240, 185, 11, 0.0)",
@@ -57,16 +57,7 @@ const ScoreLine = forwardRef<ScoreLineHandle, ScoreLineProps>(
 
       chartRef.current = chart;
 
-      // Sync crosshair with main chart
-      if (syncedChart) {
-        chart.subscribeCrosshairMove((param) => {
-          if (param.time) {
-            syncedChart.setCrosshairPosition(0, param.time, syncedChart.timeScale());
-          } else {
-            syncedChart.clearCrosshairPosition();
-          }
-        });
-      }
+      // Crosshair sync deferred — requires series reference across chart boundaries
 
       if (scores.length > 0) {
         lineSeries.setData(

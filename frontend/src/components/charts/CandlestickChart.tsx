@@ -1,5 +1,5 @@
 import { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
-import { createChart, type IChartApi, type ISeriesApi, ColorType } from "lightweight-charts";
+import { createChart, CandlestickSeries, type IChartApi, type ISeriesApi, ColorType } from "lightweight-charts";
 import type { Candle, ScorePoint } from "../../types/pulse";
 
 export interface CandlestickChartHandle {
@@ -73,7 +73,7 @@ const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickChartProp
       },
     });
 
-    const candleSeries = chart.addCandlestickSeries({
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#00e676",
       downColor: "#ff1744",
       borderUpColor: "#00e676",
@@ -86,15 +86,8 @@ const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickChartProp
     candleSeriesRef.current = candleSeries;
 
     // Sync crosshair with the other chart
-    if (syncedChart) {
-      chart.subscribeCrosshairMove((param) => {
-        if (param.time) {
-          syncedChart.setCrosshairPosition(0, param.time, syncedChart.timeScale());
-        } else {
-          syncedChart.clearCrosshairPosition();
-        }
-      });
-    }
+    // Note: crosshair sync deferred — setCrosshairPosition requires a series reference
+    // which we don't have across chart boundaries in this architecture
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
