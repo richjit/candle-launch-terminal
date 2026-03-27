@@ -60,6 +60,31 @@ async def ingest_dex_volume_history(engine, http_client: httpx.AsyncClient) -> i
     return len(rows)
 
 
+async def ingest_fees_history(engine, http_client: httpx.AsyncClient) -> int:
+    source = "chain_fees"
+    if await _check_existing(engine, source):
+        logger.info("Chain fees history already ingested, skipping")
+        return 0
+    resp = await http_client.get(
+        "https://api.llama.fi/overview/fees/solana?excludeTotalDataChart=false&excludeTotalDataChartBreakdown=true",
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    chart = data.get("totalDataChart", [])
+    rows = []
+    for entry in chart:
+        ts = int(entry[0])
+        fees = float(entry[1])
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+        rows.append(HistoricalData(source=source, date=dt, value=fees, metadata_json=None))
+    async with get_session(engine) as session:
+        session.add_all(rows)
+        await session.commit()
+    logger.info(f"Ingested {len(rows)} chain fees history rows")
+    return len(rows)
+
+
 async def ingest_stablecoin_history(engine, http_client: httpx.AsyncClient) -> int:
     source = "stablecoin_supply"
     if await _check_existing(engine, source):

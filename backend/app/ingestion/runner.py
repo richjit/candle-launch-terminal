@@ -7,6 +7,7 @@ from app.ingestion.historical_fng import ingest_fear_greed_history
 from app.ingestion.historical_defillama import (
     ingest_tvl_history,
     ingest_dex_volume_history,
+    ingest_fees_history,
     ingest_stablecoin_history,
 )
 from app.ingestion.technical_factors import compute_vol_regime
@@ -30,6 +31,7 @@ async def run_backfill(
     results["fear_greed"] = await ingest_fear_greed_history(engine, http_client)
     results["tvl"] = await ingest_tvl_history(engine, http_client)
     results["dex_volume"] = await ingest_dex_volume_history(engine, http_client)
+    results["chain_fees"] = await ingest_fees_history(engine, http_client)
     results["stablecoin_supply"] = await ingest_stablecoin_history(engine, http_client)
 
     # Compute technical factors from OHLCV data (must run after sol_csv ingestion)
