@@ -32,7 +32,7 @@ async def discover_new_launches(engine, http_client: httpx.AsyncClient) -> int:
     try:
         resp = await http_client.get(GECKO_NEW_POOLS_URL, timeout=15.0)
         resp.raise_for_status()
-        data = await resp.json()
+        data = resp.json()
     except Exception as e:
         logger.warning(f"GeckoTerminal discovery failed: {e}")
         return 0

@@ -1,7 +1,7 @@
 # backend/tests/test_launch_discovery.py
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy import select
 from app.database import init_db, get_session
 from app.launch.models import LaunchToken
@@ -59,9 +59,9 @@ GECKO_RESPONSE = {
 async def test_discover_creates_launchpad_tokens():
     engine = await init_db("sqlite+aiosqlite:///:memory:")
     mock_http = AsyncMock()
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.json.return_value = GECKO_RESPONSE
-    mock_response.raise_for_status = lambda: None
+    mock_response.raise_for_status = MagicMock()
     mock_http.get.return_value = mock_response
 
     from app.launch.discovery import discover_new_launches
@@ -94,9 +94,9 @@ async def test_discover_skips_existing_tokens():
         await session.commit()
 
     mock_http = AsyncMock()
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.json.return_value = GECKO_RESPONSE
-    mock_response.raise_for_status = lambda: None
+    mock_response.raise_for_status = MagicMock()
     mock_http.get.return_value = mock_response
 
     from app.launch.discovery import discover_new_launches
