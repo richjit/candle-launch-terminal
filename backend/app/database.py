@@ -70,3 +70,7 @@ async def get_session(engine):
         except Exception:
             await session.rollback()
             raise
+
+
+# Import launch models so Base.metadata includes their tables
+import app.launch.models  # noqa: F401
