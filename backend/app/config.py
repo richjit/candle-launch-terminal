@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     fetch_interval_google_trends: int = 3600
     fetch_interval_github: int = 21600
 
+    # Launch monitor intervals (seconds)
+    fetch_interval_launch_discovery: int = 120   # 2 min
+    fetch_interval_launch_enrichment: int = 120  # 2 min
+
     # Stale data thresholds (seconds)
     stale_threshold_rpc: int = 300
     stale_threshold_dexscreener: int = 300
