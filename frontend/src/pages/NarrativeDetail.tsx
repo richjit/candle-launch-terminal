@@ -47,7 +47,7 @@ export default function NarrativeDetail() {
       {data && (
         <>
           <div className="bg-terminal-card border border-terminal-border rounded-lg p-5 mb-6">
-            <div className="grid grid-cols-4 gap-6">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-6">
               <div>
                 <div className="text-xs text-terminal-muted uppercase mb-1">Lifecycle</div>
                 <div className="text-lg font-bold text-terminal-text capitalize">{data.lifecycle}</div>
@@ -55,6 +55,14 @@ export default function NarrativeDetail() {
               <div>
                 <div className="text-xs text-terminal-muted uppercase mb-1">Tokens</div>
                 <div className="text-lg font-bold text-terminal-text">{data.token_count}</div>
+              </div>
+              <div>
+                <div className="text-xs text-terminal-muted uppercase mb-1">Total Mcap</div>
+                <div className="text-lg font-bold text-terminal-text">{formatVolume(data.total_mcap || 0)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-terminal-muted uppercase mb-1">Avg Mcap</div>
+                <div className="text-lg font-bold text-terminal-text">{formatVolume(data.avg_mcap || 0)}</div>
               </div>
               <div>
                 <div className="text-xs text-terminal-muted uppercase mb-1">Volume</div>
@@ -78,6 +86,7 @@ export default function NarrativeDetail() {
                 <tr className="text-[11px] text-terminal-muted/50 uppercase tracking-wider border-b border-terminal-border/30">
                   <th className="text-left p-3 font-medium">Token</th>
                   <th className="text-right p-3 font-medium">Mcap</th>
+                  <th className="text-right p-3 font-medium">ATH</th>
                   <th className="text-right p-3 font-medium">Change</th>
                   <th className="text-right p-3 font-medium">Volume</th>
                   <th className="text-right p-3 font-medium">Age</th>
@@ -94,6 +103,9 @@ export default function NarrativeDetail() {
                     </td>
                     <td className="p-3 text-right text-sm tabular-nums text-terminal-text">
                       {t.mcap ? formatVolume(t.mcap) : "--"}
+                    </td>
+                    <td className="p-3 text-right text-sm tabular-nums text-terminal-accent">
+                      {(t as Record<string, unknown>).mcap_ath ? formatVolume((t as Record<string, unknown>).mcap_ath as number) : "--"}
                     </td>
                     <td className={`p-3 text-right text-sm font-bold tabular-nums ${
                       (t.price_change_pct ?? 0) > 0 ? "text-terminal-green" : "text-terminal-red"

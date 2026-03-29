@@ -67,7 +67,9 @@ async def run_narrative_pipeline(engine, http_client, groq_api_key: str) -> int:
             )).scalar_one_or_none()
 
             if existing:
-                existing.mcap = t.get("mcap")
+                new_mcap = t.get("mcap") or 0
+                existing.mcap = new_mcap
+                existing.mcap_ath = max(existing.mcap_ath or 0, new_mcap)
                 existing.price_change_pct = t.get("price_change_pct")
                 existing.volume_24h = t.get("volume_24h")
                 existing.liquidity_usd = t.get("liquidity_usd")
@@ -85,6 +87,7 @@ async def run_narrative_pipeline(engine, http_client, groq_api_key: str) -> int:
                     pair_address=t.get("pair_address", ""),
                     narrative=narrative,
                     mcap=t.get("mcap"),
+                    mcap_ath=t.get("mcap") or 0,
                     price_change_pct=t.get("price_change_pct"),
                     volume_24h=t.get("volume_24h"),
                     liquidity_usd=t.get("liquidity_usd"),
@@ -118,10 +121,13 @@ async def _aggregate_narratives(engine, now: datetime):
         for name, tokens in by_narrative.items():
             gains = [t.price_change_pct for t in tokens if t.price_change_pct is not None]
             volumes = [t.volume_24h for t in tokens if t.volume_24h is not None]
+            mcaps = [t.mcap for t in tokens if t.mcap is not None]
             top = max(tokens, key=lambda t: t.price_change_pct or 0)
 
             avg_gain = sum(gains) / len(gains) if gains else 0
             total_vol = sum(volumes)
+            total_mcap = sum(mcaps)
+            avg_mcap = total_mcap / len(mcaps) if mcaps else 0
 
             existing = (await session.execute(
                 select(Narrative).where(Narrative.name == name)
@@ -133,6 +139,8 @@ async def _aggregate_narratives(engine, now: datetime):
             if existing:
                 existing.token_count = len(tokens)
                 existing.total_volume = total_vol
+                existing.total_mcap = total_mcap
+                existing.avg_mcap = avg_mcap
                 existing.avg_gain_pct = avg_gain
                 existing.top_token_address = top.address
                 existing.lifecycle = lifecycle
@@ -142,6 +150,8 @@ async def _aggregate_narratives(engine, now: datetime):
                     name=name,
                     token_count=len(tokens),
                     total_volume=total_vol,
+                    total_mcap=total_mcap,
+                    avg_mcap=avg_mcap,
                     avg_gain_pct=avg_gain,
                     top_token_address=top.address,
                     lifecycle=lifecycle,

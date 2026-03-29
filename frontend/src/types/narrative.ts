@@ -2,6 +2,8 @@ export interface NarrativeData {
   name: string;
   token_count: number;
   total_volume: number;
+  total_mcap: number;
+  avg_mcap: number;
   avg_gain_pct: number;
   lifecycle: "emerging" | "trending" | "saturated" | "fading";
   top_token_address: string | null;
@@ -14,6 +16,7 @@ export interface NarrativeTokenData {
   symbol: string;
   narrative: string | null;
   mcap: number | null;
+  mcap_ath: number | null;
   price_change_pct: number | null;
   volume_24h: number | null;
   liquidity_usd: number | null;
@@ -32,6 +35,8 @@ export interface NarrativeDetail {
   name: string;
   token_count: number;
   total_volume: number;
+  total_mcap: number;
+  avg_mcap: number;
   avg_gain_pct: number;
   lifecycle: string;
   tokens: NarrativeTokenData[];
