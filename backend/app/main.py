@@ -24,6 +24,8 @@ from app.routers.launch import router as launch_router, set_engine as set_launch
 from app.launch.discovery import discover_new_launches
 from app.launch.enrichment import enrich_tracked_tokens
 from app.launch.aggregation import aggregate_launch_stats, cleanup_old_tokens
+from app.launch.verification import verify_tokens
+from app.launch.peak_backfill import backfill_peak_mcaps
 from app.ingestion.runner import run_backfill
 from app.analysis.correlation import compute_correlations
 from app.analysis.score_backfill import backfill_scores, compute_today_score
@@ -127,6 +129,22 @@ async def lifespan(app: FastAPI):
         args=[db_engine, http_client],
         trigger=IntervalTrigger(seconds=settings.fetch_interval_launch_enrichment),
         id="enrich_tracked_tokens",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        verify_tokens,
+        args=[db_engine, http_client, settings.solana_rpc_url],
+        trigger=IntervalTrigger(seconds=60),  # Every minute, 20 tokens per batch
+        id="verify_tokens",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        backfill_peak_mcaps,
+        args=[db_engine, http_client],
+        trigger=IntervalTrigger(seconds=30),  # Every 30s, 10 tokens per batch
+        id="backfill_peak_mcaps",
         replace_existing=True,
         max_instances=1,
     )

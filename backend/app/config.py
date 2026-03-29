@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     # API Keys (all optional)
     helius_api_key: str = ""
     coingecko_api_key: str = ""
+    dune_api_key: str = ""
     github_token: str = ""
 
     # Solana RPC

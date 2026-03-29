@@ -6,7 +6,7 @@ from statistics import median
 
 from sqlalchemy import select, delete
 
-from app.database import get_session
+from app.database import get_session, HistoricalData
 from app.launch.models import LaunchToken, LaunchDailyStats
 
 logger = logging.getLogger(__name__)
@@ -45,10 +45,20 @@ async def aggregate_launch_stats(engine) -> int:
     for d, toks in all_by_date.items():
         groups[(d, "all")] = toks
 
+    # Load pump.fun daily creates for migration rate calculation
+    pumpfun_creates_by_date: dict[date, float] = {}
+    async with get_session(engine) as session:
+        result = await session.execute(
+            select(HistoricalData).where(HistoricalData.source == "pumpfun_creates")
+        )
+        for row in result.scalars().all():
+            pumpfun_creates_by_date[row.date] = row.value
+
     count = 0
     async with get_session(engine) as session:
         for (d, launchpad), toks in groups.items():
-            stats = _compute_stats(toks)
+            denominator = pumpfun_creates_by_date.get(d)
+            stats = _compute_stats(toks, denominator)
 
             # Upsert
             result = await session.execute(
@@ -74,8 +84,13 @@ async def aggregate_launch_stats(engine) -> int:
     return count
 
 
-def _compute_stats(tokens: list[LaunchToken]) -> dict:
-    """Compute aggregate stats for a group of tokens."""
+def _compute_stats(tokens: list[LaunchToken], pumpfun_creates: float | None = None) -> dict:
+    """Compute aggregate stats for a group of tokens.
+
+    Args:
+        tokens: Tracked tokens for the group.
+        pumpfun_creates: Total pump.fun token creates that day (denominator for migration rate).
+    """
     n = len(tokens)
     peaks_1h = [t.mcap_peak_1h for t in tokens if t.mcap_peak_1h is not None]
     peaks_24h = [t.mcap_peak_24h for t in tokens if t.mcap_peak_24h is not None]
@@ -95,10 +110,14 @@ def _compute_stats(tokens: list[LaunchToken]) -> dict:
 
     volumes = [t.volume_1h for t in tokens if t.volume_1h is not None]
 
+    # Migration rate: tokens that migrated to DEX / total pump.fun creates
+    tokens_created = int(pumpfun_creates) if pumpfun_creates else n
+    migration_rate = (n / pumpfun_creates * 100) if pumpfun_creates and pumpfun_creates > 0 else 0.0
+
     return {
-        "tokens_created": n,  # placeholder — real count comes from RPC
+        "tokens_created": tokens_created,
         "tokens_migrated": n,
-        "migration_rate": 0.0,  # placeholder — needs RPC denominator
+        "migration_rate": migration_rate,
         "median_peak_mcap_1h": median(peaks_1h) if peaks_1h else None,
         "median_peak_mcap_24h": median(peaks_24h) if peaks_24h else None,
         "median_peak_mcap_7d": median(peaks_7d) if peaks_7d else None,

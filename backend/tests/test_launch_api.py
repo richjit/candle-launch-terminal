@@ -1,11 +1,11 @@
 import pytest
 import pytest_asyncio
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI
 
 from app.database import init_db, get_session
-from app.launch.models import LaunchDailyStats
+from app.launch.models import LaunchDailyStats, LaunchToken
 
 
 @pytest_asyncio.fixture
@@ -58,8 +58,8 @@ async def test_overview_endpoint(app_with_data):
         assert resp.status_code == 200
         data = resp.json()
         assert "metrics" in data
-        # Should have 8 metrics
-        assert len(data["metrics"]) == 8
+        # Should have 6 metrics (Time to Peak moved into Launch Performance)
+        assert len(data["metrics"]) == 6
         # Each metric should have current, trend, chart
         for m in data["metrics"]:
             assert "name" in m
@@ -97,3 +97,52 @@ async def test_invalid_range(app_with_data):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/launch/overview?range=invalid")
         assert resp.status_code == 400
+
+
+@pytest_asyncio.fixture
+async def app_with_tokens():
+    """Create app with LaunchToken rows for performance tier testing."""
+    engine = await init_db("sqlite+aiosqlite:///:memory:")
+
+    from app.routers.launch import router, set_engine
+    set_engine(engine)
+
+    app = FastAPI()
+    app.include_router(router)
+
+    now = datetime.now(timezone.utc)
+    async with get_session(engine) as session:
+        # Create 20 tokens with varying peak mcaps in the last 24h
+        # Address must end in "pump" to be counted as real pump.fun launches
+        for i in range(20):
+            session.add(LaunchToken(
+                address=f"{'x' * 36}token{i:03d}pump",
+                pair_address=f"pair{i:03d}{'y' * 40}"[:44],
+                launchpad="pumpfun",
+                dex="pumpswap",
+                created_at=now - timedelta(hours=i % 12),
+                mcap_peak_1h=1000 * (i + 1),  # 1K to 20K
+                mcap_current=500 * (i + 1),
+            ))
+        await session.commit()
+
+    yield app
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_performance_tiers(app_with_tokens):
+    transport = ASGITransport(app=app_with_tokens)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/launch/overview")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        perf = next(m for m in data["metrics"] if m["name"] == "Launch Performance")
+        assert "tiers" in perf
+        tiers = perf["tiers"]
+        assert tiers["bonded"] <= tiers["top10"] <= tiers["top1"] <= tiers["best24h"]
+        assert tiers["sample_size"] == 20
+        assert tiers["best24h"] == 20000
+        assert "best_address" in tiers
+        assert tiers["best_address"].endswith("pump")

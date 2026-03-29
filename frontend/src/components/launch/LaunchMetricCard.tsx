@@ -3,61 +3,107 @@ import type { LaunchMetricData, LaunchMetricSlug } from "../../types/launch";
 
 const METRIC_SLUGS: Record<string, LaunchMetricSlug> = {
   "Migration Rate": "migration-rate",
-  "Median Peak Mcap (1h)": "peak-mcap",
-  "Time to Peak": "time-to-peak",
+  "Launch Performance": "peak-mcap",
   "Survival Rate (24h)": "survival",
   "Buy/Sell Ratio": "buy-sell",
   "Daily Launches": "launches",
   "Volume": "volume",
-  "Capital Flow": "capital-flow",
+};
+
+const METRIC_DESCRIPTIONS: Record<string, string> = {
+  "Migration Rate": "Tokens graduating to DEX vs total created",
+  "Launch Performance": "Peak mcap distribution for graduated tokens",
+  "Survival Rate (24h)": "Tokens still actively trading after 24 hours",
+  "Buy/Sell Ratio": "Buy pressure vs sell pressure in first hour",
+  "Daily Launches": "Tokens migrated to DEX in the last 24h",
+  "Volume": "Total Solana DEX trading volume",
+};
+
+const METRIC_TIMEFRAMES: Record<string, string> = {
+  "Migration Rate": "24h",
+  "Launch Performance": "24h",
+  "Survival Rate (24h)": "24h",
+  "Buy/Sell Ratio": "24h",
+  "Daily Launches": "24h",
+  "Volume": "24h",
+};
+
+type HealthLevel = "good" | "neutral" | "bad";
+
+function getHealth(name: string, value: number | null): HealthLevel {
+  if (value === null) return "neutral";
+  if (name.includes("Migration")) return value > 1.5 ? "good" : value < 0.5 ? "bad" : "neutral";
+  if (name.includes("Survival")) return value > 50 ? "good" : value < 30 ? "bad" : "neutral";
+  if (name.includes("Ratio")) return value > 1.0 ? "good" : value < 0.5 ? "bad" : "neutral";
+  if (name.includes("Peak Mcap")) return value > 5000 ? "good" : value < 1000 ? "bad" : "neutral";
+  if (name.includes("Launches")) return value > 200 ? "good" : value < 50 ? "bad" : "neutral";
+  return "neutral";
+}
+
+const HEALTH_COLORS: Record<HealthLevel, string> = {
+  good: "bg-terminal-green",
+  neutral: "bg-terminal-accent",
+  bad: "bg-terminal-red",
+};
+
+const HEALTH_GLOW: Record<HealthLevel, string> = {
+  good: "shadow-[0_0_6px_rgba(0,230,118,0.3)]",
+  neutral: "shadow-[0_0_6px_rgba(240,185,11,0.3)]",
+  bad: "shadow-[0_0_6px_rgba(255,23,68,0.3)]",
 };
 
 function formatValue(name: string, value: number | null): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "--";
   if (name.includes("Rate") || name.includes("Migration")) return `${value.toFixed(1)}%`;
-  if (name.includes("Mcap") || name.includes("Volume") || name.includes("Capital")) {
+  if (name.includes("Mcap") || name.includes("Volume")) {
+    if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
     if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
     if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
     return `$${value.toFixed(0)}`;
   }
-  if (name.includes("Time")) return `${value.toFixed(0)}min`;
+  if (name.includes("Time")) return `${value.toFixed(0)} min`;
   if (name.includes("Ratio")) return value.toFixed(2);
   return value.toLocaleString();
 }
 
-function Sparkline({ data }: { data: { value: number | null }[] }) {
+function Sparkline({ data, health }: { data: { value: number | null }[]; health: HealthLevel }) {
   const values = data.map((d) => d.value).filter((v): v is number => v !== null);
   if (values.length < 2) return null;
 
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
-  const w = 120;
-  const h = 32;
+  const w = 200;
+  const h = 48;
 
-  const points = values
-    .slice(-30)
-    .map((v, i, arr) => {
-      const x = (i / (arr.length - 1)) * w;
-      const y = h - ((v - min) / range) * h;
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const pointCoords = values.slice(-30).map((v, i, arr) => ({
+    x: (i / (arr.length - 1)) * w,
+    y: h - ((v - min) / range) * (h - 4) - 2,
+  }));
+
+  const line = pointCoords.map((p) => `${p.x},${p.y}`).join(" ");
+  // Area fill: line + bottom corners
+  const area = `${line} ${w},${h} 0,${h}`;
+
+  const strokeColor =
+    health === "good" ? "#00e676" : health === "bad" ? "#ff1744" : "#f0b90b";
+  const fillId = `grad-${health}`;
 
   return (
-    <svg width={w} height={h} className="mt-2">
-      <polyline
-        points={points}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        className="text-terminal-accent"
-      />
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="mt-3">
+      <defs>
+        <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={strokeColor} stopOpacity="0.15" />
+          <stop offset="100%" stopColor={strokeColor} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill={`url(#${fillId})`} />
+      <polyline points={line} fill="none" stroke={strokeColor} strokeWidth={1.5} />
     </svg>
   );
 }
 
-const TREND_ARROWS = { up: "▲", down: "▼", flat: "—" };
+const TREND_LABELS = { up: "Trending up", down: "Trending down", flat: "Stable" };
 const TREND_COLORS = {
   up: "text-terminal-green",
   down: "text-terminal-red",
@@ -67,26 +113,62 @@ const TREND_COLORS = {
 export default function LaunchMetricCard({ metric }: { metric: LaunchMetricData }) {
   const navigate = useNavigate();
   const slug = METRIC_SLUGS[metric.name];
+  const health = getHealth(metric.name, metric.current);
+  const description = METRIC_DESCRIPTIONS[metric.name] || "";
+  const timeframe = METRIC_TIMEFRAMES[metric.name];
 
   return (
     <button
       onClick={() => slug && navigate(`/launch/${slug}`)}
-      className="bg-terminal-card border border-terminal-border rounded p-4 text-left hover:border-terminal-accent/40 transition-colors w-full"
+      className="bg-terminal-card border border-terminal-border rounded-lg p-5 text-left hover:border-terminal-accent/40 transition-all w-full group"
     >
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-terminal-muted uppercase tracking-wide">
-          {metric.name}
-        </span>
-        <span className={`text-xs ${TREND_COLORS[metric.trend]}`}>
-          {TREND_ARROWS[metric.trend]}
-        </span>
-      </div>
-      <div className="text-xl font-bold text-terminal-text mt-1">
-        {metric.current !== null ? formatValue(metric.name, metric.current) : (
-          <span className="text-terminal-muted text-sm">Collecting data...</span>
+      {/* Header: indicator dot + name + timeframe */}
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <div className={`w-1.5 h-1.5 rounded-full ${HEALTH_COLORS[health]} ${HEALTH_GLOW[health]}`} />
+          <span className="text-xs text-terminal-muted uppercase tracking-wider font-medium">
+            {metric.name}
+          </span>
+        </div>
+        {timeframe && (
+          <span className="text-[10px] text-terminal-muted/40">{timeframe}</span>
         )}
       </div>
-      <Sparkline data={metric.chart} />
+
+      {/* Description */}
+      <div className="text-[11px] text-terminal-muted/60 mb-3 leading-tight">
+        {description}
+      </div>
+
+      {/* Value */}
+      <div className="text-2xl font-bold text-terminal-text tracking-tight">
+        {metric.current !== null ? formatValue(metric.name, metric.current) : (
+          <span className="text-terminal-muted text-sm font-normal">Awaiting data...</span>
+        )}
+      </div>
+
+      {/* Trend + breakdown */}
+      <div className="flex items-center justify-between mt-1">
+        <span className={`text-[11px] ${TREND_COLORS[metric.trend]}`}>
+          {TREND_LABELS[metric.trend]}
+        </span>
+        {metric.breakdown && Object.keys(metric.breakdown).length > 0 && (
+          <span className="text-[11px] text-terminal-muted">
+            {Object.entries(metric.breakdown)
+              .slice(0, 3)
+              .map(([k, v]) => `${k}: ${v?.toLocaleString() ?? "--"}`)
+              .join(" · ")}
+          </span>
+        )}
+      </div>
+
+      {/* Sparkline */}
+      <Sparkline data={metric.chart} health={health} />
+
+      {/* Hover hint */}
+      <div className="text-[10px] text-terminal-muted/0 group-hover:text-terminal-muted/40 transition-colors mt-2 text-right">
+        View details →
+      </div>
     </button>
   );
 }

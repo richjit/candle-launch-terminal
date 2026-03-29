@@ -76,9 +76,9 @@ async def enrich_tracked_tokens(engine, http_client: httpx.AsyncClient) -> int:
                 created_at = created_at.replace(tzinfo=timezone.utc)
             age = now - created_at
             mcap = pair.get("marketCap") or 0
-            volume = pair.get("volume", {})
-            txns = pair.get("txns", {})
-            liq = pair.get("liquidity", {})
+            volume = pair.get("volume") or {}
+            txns = pair.get("txns") or {}
+            liq = pair.get("liquidity") or {}
 
             vol_h1 = volume.get("h1", 0) or 0
             vol_h24 = volume.get("h24", 0) or 0
@@ -97,12 +97,13 @@ async def enrich_tracked_tokens(engine, http_client: httpx.AsyncClient) -> int:
             token.last_updated = now
 
             # Track peak mcap within checkpoint windows
-            # IMPORTANT: Save old peak BEFORE updating so we can detect new peaks
-            if age <= timedelta(hours=1):
-                old_peak_1h = token.mcap_peak_1h or 0
-                token.mcap_peak_1h = max(old_peak_1h, mcap)
-            elif token.mcap_peak_1h is None:
-                token.mcap_peak_1h = mcap
+            # Skip mcap_peak_1h if OHLCV backfill has set the authoritative value
+            if not token.peak_backfilled:
+                if age <= timedelta(hours=1):
+                    old_peak_1h = token.mcap_peak_1h or 0
+                    token.mcap_peak_1h = max(old_peak_1h, mcap)
+                elif token.mcap_peak_1h is None:
+                    token.mcap_peak_1h = mcap
 
             if age <= timedelta(hours=24):
                 old_peak_24h = token.mcap_peak_24h or 0

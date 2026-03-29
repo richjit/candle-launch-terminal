@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 import httpx
 import respx
@@ -10,7 +12,8 @@ from app.ingestion.runner import run_backfill
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_run_backfill_ingests_all_sources():
+@patch("app.ingestion.dune._get_api_key", return_value=None)
+async def test_run_backfill_ingests_all_sources(_mock_key):
     # Mock external APIs
     respx.get("https://api.alternative.me/fng/").mock(
         return_value=httpx.Response(200, json={"data": [
@@ -27,6 +30,11 @@ async def test_run_backfill_ingests_all_sources():
         return_value=httpx.Response(200, json=[
             {"date": "1711497600", "totalCirculatingUSD": {"peggedUSD": 3e9}},
         ])
+    )
+
+    # Mock fees endpoint (used by ingest_fees_history)
+    respx.get("https://api.llama.fi/overview/fees/solana").mock(
+        return_value=httpx.Response(200, json={"totalDataChart": [[1711497600, 1e6]]})
     )
 
     csv_content = "time,open,high,low,close,#1\n1711497600,185.2,192.1,183.0,190.5,\n"
@@ -51,7 +59,8 @@ async def test_run_backfill_ingests_all_sources():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_run_backfill_idempotent():
+@patch("app.ingestion.dune._get_api_key", return_value=None)
+async def test_run_backfill_idempotent(_mock_key):
     respx.get("https://api.alternative.me/fng/").mock(
         return_value=httpx.Response(200, json={"data": [
             {"value": "50", "value_classification": "Neutral", "timestamp": "1711497600"},
@@ -67,6 +76,9 @@ async def test_run_backfill_idempotent():
         return_value=httpx.Response(200, json=[
             {"date": "1711497600", "totalCirculatingUSD": {"peggedUSD": 3e9}},
         ])
+    )
+    respx.get("https://api.llama.fi/overview/fees/solana").mock(
+        return_value=httpx.Response(200, json={"totalDataChart": [[1711497600, 1e6]]})
     )
 
     csv_content = "time,open,high,low,close,#1\n1711497600,185.2,192.1,183.0,190.5,\n"

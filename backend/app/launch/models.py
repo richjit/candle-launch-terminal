@@ -27,6 +27,9 @@ class LaunchToken(Base):
     liquidity_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_alive: Mapped[bool] = mapped_column(Boolean, default=True)
     checkpoint_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    verified_pumpfun: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rugcheck_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    peak_backfilled: Mapped[bool] = mapped_column(Boolean, default=False)
     last_updated: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

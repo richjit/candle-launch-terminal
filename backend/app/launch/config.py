@@ -10,27 +10,43 @@ LAUNCHPAD_PROGRAMS: dict[str, str] = {
     # "candle": "TBD",  # Candle TV v2 — uncomment when launched
 }
 
-# GeckoTerminal DEX name (case-insensitive) → launchpad
+# GeckoTerminal DEX ID → launchpad
+# These are all DEX identifiers from GeckoTerminal's new_pools endpoint
 DEX_NAME_MAP: dict[str, str] = {
-    "pumpswap": "pumpfun",
+    # pump.fun bonding curve only — pumpswap is a general DEX,
+    # so pumpswap tokens are identified by "pump" address suffix instead
+    "pump-fun": "pumpfun",
     "pump.fun": "pumpfun",
+    # Raydium LaunchLab
+    "raydium-launchlab": "launchlab",
+    # Meteora Dynamic Bonding Curve
+    "meteora-dbc": "meteora",
+    # Bonk launcher
     "bonk launcher": "bonk",
     "bonk": "bonk",
+    # Bags
     "bags": "bags",
+    # Candle
     "candle": "candle",
 }
 
 # DexScreener dexId → launchpad
 DEX_ID_MAP: dict[str, str] = {
-    "pumpswap": "pumpfun",
+    "raydium-launchlab": "launchlab",
+    "meteora-dbc": "meteora",
 }
 
 # Token address suffix → launchpad
 ADDRESS_SUFFIX_MAP: dict[str, str] = {
     "pump": "pumpfun",
+    "bonk": "bonk",
 }
 
-SUPPORTED_LAUNCHPADS = {"pumpfun", "bonk", "bags", "candle"}
+SUPPORTED_LAUNCHPADS = {"pumpfun", "launchlab", "meteora", "bonk", "bags", "candle"}
+
+# DEX IDs that represent bonding curves (tokens here haven't graduated yet).
+# These are filtered out when computing stats for graduated tokens.
+BONDING_CURVE_DEXES = {"pump-fun", "raydium-launchlab", "meteora-dbc"}
 
 
 def identify_launchpad(
@@ -61,3 +77,8 @@ def identify_launchpad(
                 return launchpad
 
     return None
+
+
+def is_bonding_curve(dex_id: str) -> bool:
+    """Check if a DEX ID represents a bonding curve (not a real DEX)."""
+    return dex_id in BONDING_CURVE_DEXES
