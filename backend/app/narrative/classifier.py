@@ -7,19 +7,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama-3.1-8b-instant"
+MODEL = "llama-3.3-70b-versatile"
 
-SYSTEM_PROMPT = """You categorize Solana meme tokens into market narratives.
+SYSTEM_PROMPT = """Categorize each Solana memecoin into its narrative theme. Return ONLY JSON: [{"token":"name","narrative":"category"}]
 
-Return ONLY a JSON array: [{"token": "name", "narrative": "category"}]
+Pick the BEST fit. If the name mentions ANY animal (dog, cat, wolf, penguin, frog, inu, pup) → Animals. If political (Trump, bank, nation, government) → Political. Use your best judgment.
 
-Categories: AI, Pets, Political, Gaming, Utility, Food, Celebrity, Meme, DeFi, Other
+Common narratives: Animals, AI, Political, Art/Pixel, Culture, Celebrity, Absurdist, Finance Parody, Adult/NSFW, Gaming, Anime, Food
 
-Rules:
-- Use the token name and symbol to determine the best category
-- If unsure, use "Meme" as the default
-- Keep category names exactly as listed above
-- No explanation, just the JSON array"""
+You CAN invent new categories if you spot a clear theme. Do NOT use "Other" or "Meme" — every token has a theme, find it."""
 
 
 async def classify_narratives(
@@ -69,12 +65,17 @@ async def classify_narratives(
         logger.warning(f"Groq classification failed: {e}")
         return {}
 
+    # Map by both name and symbol since Groq may return either
     name_to_addr = {t["name"]: t["address"] for t in tokens}
+    symbol_to_addr = {t["symbol"]: t["address"] for t in tokens}
     result = {}
     for item in classifications:
-        name = item.get("token", "")
-        narrative = item.get("narrative", "Other")
-        if name in name_to_addr:
-            result[name_to_addr[name]] = narrative
+        token_ref = item.get("token", "")
+        narrative = item.get("narrative", "")
+        if not narrative or narrative in ("Other", "Meme"):
+            narrative = "Absurdist"  # Fallback for unclassified
+        addr = name_to_addr.get(token_ref) or symbol_to_addr.get(token_ref)
+        if addr:
+            result[addr] = narrative
 
     return result
