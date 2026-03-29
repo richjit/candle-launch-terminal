@@ -23,14 +23,17 @@ async def get_overview():
     """All narratives ranked by momentum + top 10 runners."""
     async with get_session(_engine) as session:
         narratives = (await session.execute(
-            select(Narrative).order_by(
-                (Narrative.avg_gain_pct * Narrative.total_volume).desc()
-            )
+            select(Narrative)
+            .where(Narrative.token_count >= 3)
+            .where(Narrative.total_volume >= 10000)
+            .order_by((Narrative.avg_gain_pct * Narrative.total_volume).desc())
         )).scalars().all()
 
+        # Top runners: must have real traction (mcap > $5K)
         runners = (await session.execute(
             select(NarrativeToken)
             .where(NarrativeToken.price_change_pct.is_not(None))
+            .where(NarrativeToken.mcap > 5000)
             .order_by(NarrativeToken.price_change_pct.desc())
             .limit(10)
         )).scalars().all()

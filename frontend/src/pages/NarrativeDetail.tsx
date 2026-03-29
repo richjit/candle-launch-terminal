@@ -15,6 +15,15 @@ function formatPct(v: number | null): string {
   return `${v > 0 ? "+" : ""}${v.toFixed(0)}%`;
 }
 
+function formatAge(created: string | null): string {
+  if (!created) return "--";
+  const diff = Date.now() - new Date(created).getTime();
+  const h = Math.floor(diff / 3600000);
+  if (h >= 24) return `${Math.floor(h / 24)}d`;
+  if (h > 0) return `${h}h`;
+  return `${Math.floor(diff / 60000)}m`;
+}
+
 export default function NarrativeDetail() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
@@ -71,6 +80,7 @@ export default function NarrativeDetail() {
                   <th className="text-right p-3 font-medium">Mcap</th>
                   <th className="text-right p-3 font-medium">Change</th>
                   <th className="text-right p-3 font-medium">Volume</th>
+                  <th className="text-right p-3 font-medium">Age</th>
                   <th className="text-right p-3 font-medium">Type</th>
                   <th className="text-right p-3 font-medium"></th>
                 </tr>
@@ -92,6 +102,9 @@ export default function NarrativeDetail() {
                     </td>
                     <td className="p-3 text-right text-sm tabular-nums text-terminal-muted">
                       {t.volume_24h ? formatVolume(t.volume_24h) : "--"}
+                    </td>
+                    <td className="p-3 text-right text-sm tabular-nums text-terminal-muted">
+                      {formatAge(t.created_at)}
                     </td>
                     <td className="p-3 text-right text-xs">
                       {t.is_original ? (
