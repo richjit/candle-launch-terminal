@@ -9,23 +9,34 @@ logger = logging.getLogger(__name__)
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODEL = "llama-3.3-70b-versatile"
 
-SYSTEM_PROMPT = """Categorize each Solana memecoin into its narrative theme. Return ONLY JSON: [{"token":"name","narrative":"category"}]
+SYSTEM_PROMPT = """Categorize each Solana memecoin into its narrative themes. A token can belong to MULTIPLE narratives.
 
-Pick the BEST fit. If the name mentions ANY animal (dog, cat, wolf, penguin, frog, inu, pup) → Animals. If political (Trump, bank, nation, government) → Political. Use your best judgment.
+Return ONLY JSON: [{"token":"name","narratives":["category1","category2"]}]
+
+Examples:
+- "Pixel Trump" -> ["Art/Pixel", "Political"]
+- "Vaping Penguin" -> ["Animals", "Absurdist"]
+- "DogAI" -> ["Animals", "AI"]
+- "Buttcoin" -> ["Finance Parody"]
 
 Common narratives: Animals, AI, Political, Art/Pixel, Culture, Celebrity, Absurdist, Finance Parody, Adult/NSFW, Gaming, Anime, Food
 
-You CAN invent new categories if you spot a clear theme. Do NOT use "Other" or "Meme" — every token has a theme, find it."""
+Rules:
+- If a token fits multiple categories, list ALL of them (max 3)
+- If the name mentions ANY animal (dog, cat, wolf, penguin, frog, inu, pup) it MUST include "Animals"
+- If political (Trump, government, bank, nation) it MUST include "Political"
+- You CAN invent new categories if you spot a clear theme
+- Do NOT use "Other" or "Meme" — dig deeper"""
 
 
 async def classify_narratives(
     tokens: list[dict],
     api_key: str,
     http_client: httpx.AsyncClient,
-) -> dict[str, str]:
+) -> dict[str, list[str]]:
     """Classify tokens into narratives using Groq LLM.
 
-    Returns dict mapping token address -> narrative category.
+    Returns dict mapping token address -> list of narrative categories.
     """
     if not tokens or not api_key:
         return {}
@@ -65,17 +76,24 @@ async def classify_narratives(
         logger.warning(f"Groq classification failed: {e}")
         return {}
 
-    # Map by both name and symbol since Groq may return either
-    name_to_addr = {t["name"]: t["address"] for t in tokens}
-    symbol_to_addr = {t["symbol"]: t["address"] for t in tokens}
-    result = {}
+    # Map by name, symbol, and "name (symbol)" since Groq may return any format
+    lookup: dict[str, str] = {}
+    for t in tokens:
+        lookup[t["name"]] = t["address"]
+        lookup[t["symbol"]] = t["address"]
+        lookup[f"{t['name']} ({t['symbol']})"] = t["address"]
+
+    result: dict[str, list[str]] = {}
     for item in classifications:
         token_ref = item.get("token", "")
-        narrative = item.get("narrative", "")
-        if not narrative or narrative in ("Other", "Meme"):
-            narrative = "Absurdist"  # Fallback for unclassified
-        addr = name_to_addr.get(token_ref) or symbol_to_addr.get(token_ref)
+        narratives = item.get("narratives") or [item.get("narrative", "")]
+        if isinstance(narratives, str):
+            narratives = [narratives]
+        narratives = [n for n in narratives if n and n not in ("Other", "Meme")]
+        if not narratives:
+            narratives = ["Absurdist"]
+        addr = lookup.get(token_ref)
         if addr:
-            result[addr] = narrative
+            result[addr] = narratives
 
     return result

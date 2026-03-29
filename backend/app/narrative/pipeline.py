@@ -60,7 +60,8 @@ async def run_narrative_pipeline(engine, http_client, groq_api_key: str) -> int:
     # 5. Store tokens
     async with get_session(engine) as session:
         for t in tokens:
-            narrative = classifications.get(t["address"], "Other")
+            narratives = classifications.get(t["address"], ["Absurdist"])
+            narrative = ",".join(narratives)  # Store as comma-separated
 
             existing = (await session.execute(
                 select(NarrativeToken).where(NarrativeToken.address == t["address"])
@@ -116,7 +117,10 @@ async def _aggregate_narratives(engine, now: datetime):
         by_narrative: dict[str, list[NarrativeToken]] = {}
         for t in all_tokens:
             if t.narrative:
-                by_narrative.setdefault(t.narrative, []).append(t)
+                for narr in t.narrative.split(","):
+                    narr = narr.strip()
+                    if narr:
+                        by_narrative.setdefault(narr, []).append(t)
 
         for name, tokens in by_narrative.items():
             gains = [t.price_change_pct for t in tokens if t.price_change_pct is not None]
