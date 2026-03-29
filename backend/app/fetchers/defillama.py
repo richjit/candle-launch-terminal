@@ -1,4 +1,6 @@
 # backend/app/fetchers/defillama.py
+from datetime import date
+
 from app.fetchers.base import BaseFetcher
 
 
@@ -56,6 +58,10 @@ class DefiLlamaFetcher(BaseFetcher):
             "metadata": None,
         })
 
+        # Persist today's volume to HistoricalData for the launch dashboard
+        if self.db_engine and vol_24h:
+            self._pending_dex_volume = float(vol_24h)
+
         # Cross-chain TVL comparison
         chains = data.get("chains_tvl") or []
         chain_map = {}
@@ -86,3 +92,29 @@ class DefiLlamaFetcher(BaseFetcher):
             })
 
         return metrics
+
+    async def _persist_metrics(self, metrics, fetched_at):
+        """Extend base persist to also upsert today's dex_volume into HistoricalData."""
+        await super()._persist_metrics(metrics, fetched_at)
+
+        vol = getattr(self, "_pending_dex_volume", None)
+        if vol and self.db_engine:
+            try:
+                from sqlalchemy import select
+                from app.database import get_session, HistoricalData
+                today = date.today()
+                async with get_session(self.db_engine) as session:
+                    existing = (await session.execute(
+                        select(HistoricalData)
+                        .where(HistoricalData.source == "dex_volume")
+                        .where(HistoricalData.date == today)
+                    )).scalar_one_or_none()
+                    if existing:
+                        existing.value = vol
+                    else:
+                        session.add(HistoricalData(source="dex_volume", date=today, value=vol))
+                    await session.commit()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to persist dex_volume to HistoricalData: {e}")
+            self._pending_dex_volume = None

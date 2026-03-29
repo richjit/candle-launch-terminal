@@ -20,6 +20,12 @@ from app.routers.health import router as health_router, set_fetchers
 from app.routers.pulse_chart import router as chart_router, set_engine as set_chart_engine
 from app.routers.pulse_correlations import router as correlations_router, set_correlations
 from app.routers.pulse_ecosystem import router as ecosystem_router, set_cache as set_ecosystem_cache, set_engine as set_ecosystem_engine
+from app.routers.launch import router as launch_router, set_engine as set_launch_engine
+from app.launch.discovery import discover_new_launches
+from app.launch.enrichment import enrich_tracked_tokens
+from app.launch.aggregation import aggregate_launch_stats, cleanup_old_tokens
+from app.launch.verification import verify_tokens
+from app.launch.peak_backfill import backfill_peak_mcaps
 from app.ingestion.runner import run_backfill
 from app.analysis.correlation import compute_correlations
 from app.analysis.score_backfill import backfill_scores, compute_today_score
@@ -69,6 +75,9 @@ async def lifespan(app: FastAPI):
     set_ecosystem_cache(cache)
     set_ecosystem_engine(db_engine)
 
+    # Launch monitor
+    set_launch_engine(db_engine)
+
     # Register scheduled jobs
     register_fetcher_job(dexscreener, settings.fetch_interval_dexscreener)
     register_fetcher_job(solana_rpc, settings.fetch_interval_rpc)
@@ -106,6 +115,56 @@ async def lifespan(app: FastAPI):
         max_instances=1,
     )
 
+    # Launch monitor jobs
+    scheduler.add_job(
+        discover_new_launches,
+        args=[db_engine, http_client],
+        trigger=IntervalTrigger(seconds=settings.fetch_interval_launch_discovery),
+        id="discover_new_launches",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        enrich_tracked_tokens,
+        args=[db_engine, http_client],
+        trigger=IntervalTrigger(seconds=settings.fetch_interval_launch_enrichment),
+        id="enrich_tracked_tokens",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        verify_tokens,
+        args=[db_engine, http_client, settings.solana_rpc_url],
+        trigger=IntervalTrigger(seconds=60),  # Every minute, 20 tokens per batch
+        id="verify_tokens",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        backfill_peak_mcaps,
+        args=[db_engine, http_client],
+        trigger=IntervalTrigger(seconds=30),  # Every 30s, 10 tokens per batch
+        id="backfill_peak_mcaps",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        aggregate_launch_stats,
+        args=[db_engine],
+        trigger=IntervalTrigger(seconds=86400),  # Daily
+        id="aggregate_launch_stats",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        cleanup_old_tokens,
+        args=[db_engine],
+        trigger=IntervalTrigger(seconds=604800),  # Weekly
+        id="cleanup_old_tokens",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
 
     yield
@@ -130,3 +189,4 @@ app.include_router(health_router)
 app.include_router(chart_router)
 app.include_router(correlations_router)
 app.include_router(ecosystem_router)
+app.include_router(launch_router)
