@@ -2,7 +2,9 @@ from app.launch.config import identify_launchpad
 
 
 def test_identify_pumpfun_by_dex_name():
+    # PumpSwap is a general DEX — need "pump" suffix to identify as pumpfun
     assert identify_launchpad(dex_name="PumpSwap", token_address="abc123pump", dex_id=None) == "pumpfun"
+    assert identify_launchpad(dex_name="PumpSwap", token_address="abc123xyz", dex_id=None) is None
 
 
 def test_identify_pumpfun_by_address_suffix():
@@ -10,7 +12,9 @@ def test_identify_pumpfun_by_address_suffix():
 
 
 def test_identify_pumpfun_by_dex_id():
-    assert identify_launchpad(dex_name=None, token_address="abc", dex_id="pumpswap") == "pumpfun"
+    # pumpswap requires "pump" suffix — it's a general DEX not exclusive to pump.fun
+    assert identify_launchpad(dex_name=None, token_address="abc123pump", dex_id="pumpswap") == "pumpfun"
+    assert identify_launchpad(dex_name=None, token_address="abc", dex_id="pumpswap") is None
 
 
 def test_identify_unknown_returns_none():
