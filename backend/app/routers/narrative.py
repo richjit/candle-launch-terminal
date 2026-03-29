@@ -68,7 +68,7 @@ async def get_overview():
     }
 
 
-@router.get("/{name}")
+@router.get("/{name:path}")
 async def get_narrative_detail(name: str):
     """Detail view for one narrative with all its tokens."""
     async with get_session(_engine) as session:
