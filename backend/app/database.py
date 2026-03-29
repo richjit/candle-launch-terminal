@@ -74,3 +74,4 @@ async def get_session(engine):
 
 # Import launch models so Base.metadata includes their tables
 import app.launch.models  # noqa: F401
+import app.narrative.models  # noqa: F401
