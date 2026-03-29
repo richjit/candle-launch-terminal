@@ -21,6 +21,8 @@ from app.routers.pulse_chart import router as chart_router, set_engine as set_ch
 from app.routers.pulse_correlations import router as correlations_router, set_correlations
 from app.routers.pulse_ecosystem import router as ecosystem_router, set_cache as set_ecosystem_cache, set_engine as set_ecosystem_engine
 from app.routers.launch import router as launch_router, set_engine as set_launch_engine
+from app.routers.narrative import router as narrative_router, set_engine as set_narrative_engine
+from app.narrative.pipeline import run_narrative_pipeline
 from app.launch.discovery import discover_new_launches
 from app.launch.enrichment import enrich_tracked_tokens
 from app.launch.aggregation import aggregate_launch_stats, cleanup_old_tokens
@@ -77,6 +79,7 @@ async def lifespan(app: FastAPI):
 
     # Launch monitor
     set_launch_engine(db_engine)
+    set_narrative_engine(db_engine)
 
     # Register scheduled jobs
     register_fetcher_job(dexscreener, settings.fetch_interval_dexscreener)
@@ -165,6 +168,16 @@ async def lifespan(app: FastAPI):
         max_instances=1,
     )
 
+    # Narrative tracker job
+    scheduler.add_job(
+        run_narrative_pipeline,
+        args=[db_engine, http_client, settings.groq_api_key],
+        trigger=IntervalTrigger(seconds=settings.fetch_interval_narrative),
+        id="narrative_pipeline",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
 
     yield
@@ -190,3 +203,4 @@ app.include_router(chart_router)
 app.include_router(correlations_router)
 app.include_router(ecosystem_router)
 app.include_router(launch_router)
+app.include_router(narrative_router)

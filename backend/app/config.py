@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     helius_api_key: str = ""
     coingecko_api_key: str = ""
     dune_api_key: str = ""
+    groq_api_key: str = ""
     github_token: str = ""
 
     # Solana RPC
@@ -30,6 +31,9 @@ class Settings(BaseSettings):
     # Launch monitor intervals (seconds)
     fetch_interval_launch_discovery: int = 120   # 2 min
     fetch_interval_launch_enrichment: int = 120  # 2 min
+
+    # Narrative tracker intervals (seconds)
+    fetch_interval_narrative: int = 1200  # 20 minutes
 
     # Stale data thresholds (seconds)
     stale_threshold_rpc: int = 300
