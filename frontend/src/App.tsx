@@ -4,6 +4,8 @@ import Sidebar from "./components/layout/Sidebar";
 import Pulse from "./pages/Pulse";
 import LaunchDashboard from "./pages/LaunchDashboard";
 import LaunchDetail from "./pages/LaunchDetail";
+import NarrativeDashboard from "./pages/NarrativeDashboard";
+import NarrativeDetail from "./pages/NarrativeDetail";
 
 export default function App() {
   return (
@@ -15,6 +17,8 @@ export default function App() {
           <Route path="/pulse" element={<Pulse />} />
           <Route path="/launch" element={<LaunchDashboard />} />
           <Route path="/launch/:metric" element={<LaunchDetail />} />
+          <Route path="/narrative" element={<NarrativeDashboard />} />
+          <Route path="/narrative/:name" element={<NarrativeDetail />} />
         </Routes>
       </main>
     </div>
