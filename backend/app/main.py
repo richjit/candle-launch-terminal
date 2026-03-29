@@ -168,6 +168,9 @@ async def lifespan(app: FastAPI):
         max_instances=1,
     )
 
+    # Run narrative pipeline immediately on startup
+    await run_narrative_pipeline(db_engine, http_client, settings.groq_api_key)
+
     # Narrative tracker job
     scheduler.add_job(
         run_narrative_pipeline,
