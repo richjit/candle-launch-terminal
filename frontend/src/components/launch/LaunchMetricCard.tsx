@@ -147,20 +147,37 @@ export default function LaunchMetricCard({ metric }: { metric: LaunchMetricData 
         )}
       </div>
 
-      {/* Trend + breakdown */}
-      <div className="flex items-center justify-between mt-1">
+      {/* Trend */}
+      <div className="mt-1">
         <span className={`text-[11px] ${TREND_COLORS[metric.trend]}`}>
           {TREND_LABELS[metric.trend]}
         </span>
-        {metric.breakdown && Object.keys(metric.breakdown).length > 0 && (
-          <span className="text-[11px] text-terminal-muted">
-            {Object.entries(metric.breakdown)
-              .slice(0, 3)
-              .map(([k, v]) => `${k}: ${v?.toLocaleString() ?? "--"}`)
-              .join(" · ")}
-          </span>
-        )}
       </div>
+
+      {/* Breakdown bars */}
+      {metric.breakdown && Object.keys(metric.breakdown).length > 1 && (
+        <div className="mt-3 space-y-1.5">
+          {Object.entries(metric.breakdown)
+            .filter(([, v]) => v != null && v > 0)
+            .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+            .slice(0, 5)
+            .map(([k, v]) => {
+              const max = Math.max(...Object.values(metric.breakdown!).filter((x): x is number => x != null));
+              const pct = max > 0 ? ((v ?? 0) / max) * 100 : 0;
+              return (
+                <div key={k} className="flex items-center gap-2">
+                  <span className="text-[10px] text-terminal-muted w-20 truncate">{k}</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-terminal-border/30 overflow-hidden">
+                    <div className="h-full rounded-full bg-terminal-accent/60" style={{ width: `${Math.max(pct, 2)}%` }} />
+                  </div>
+                  <span className="text-[10px] tabular-nums text-terminal-muted w-12 text-right">
+                    {(v ?? 0).toLocaleString()}
+                  </span>
+                </div>
+              );
+            })}
+        </div>
+      )}
 
       {/* Sparkline */}
       <Sparkline data={metric.chart} health={health} />

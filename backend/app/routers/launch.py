@@ -277,6 +277,18 @@ async def _get_live_launch_stats() -> dict:
         else:
             full_day_grads = None
 
+        # Per-platform creates for the same day
+        platform_creates = {}
+        if full_day_creates:
+            platform_rows = (await session.execute(
+                select(HistoricalData)
+                .where(HistoricalData.source.like("creates_%"))
+                .where(HistoricalData.date == full_day_creates.date)
+            )).scalars().all()
+            for row in platform_rows:
+                name = row.source.replace("creates_", "")
+                platform_creates[name] = int(row.value)
+
         if full_day_creates and full_day_creates.value > 0:
             total_launches = int(full_day_creates.value)
             if full_day_grads:
@@ -286,7 +298,7 @@ async def _get_live_launch_stats() -> dict:
 
     return {
         "daily_launches": total_launches,
-        "daily_launches_breakdown": dict(by_lp),
+        "daily_launches_breakdown": platform_creates or dict(by_lp),
         "total_tracked": len(recent_tokens),
         "survival_rate": (len(alive) / len(recent_tokens) * 100) if recent_tokens else None,
         "median_peak_mcap_1h": median(peaks) if peaks else None,
