@@ -74,9 +74,8 @@ function G({children,className="",delay=0}:{children:React.ReactNode;className?:
 }
 
 // ── Lifecycle styles ──
-const LC_GRAD:Record<string,string>={emerging:"from-blue-500/15 to-transparent",trending:"from-emerald-500/15 to-transparent",saturated:"from-amber-500/10 to-transparent",fading:"from-red-500/8 to-transparent"};
-const LC_BORDER:Record<string,string>={emerging:"border-blue-500/20 hover:border-blue-400/35",trending:"border-emerald-500/20 hover:border-emerald-400/35",saturated:"border-amber-500/15 hover:border-amber-400/30",fading:"border-red-500/10 hover:border-red-400/20"};
-const LC_BADGE:Record<string,string>={emerging:"bg-blue-500/20 text-blue-300",trending:"bg-emerald-500/20 text-emerald-300",saturated:"bg-amber-500/15 text-amber-300",fading:"bg-red-500/15 text-red-300"};
+const LC_LEFT:Record<string,string>={emerging:"border-l-blue-400",trending:"border-l-emerald-400",saturated:"border-l-amber-400",fading:"border-l-red-400/50"};
+const LC_BADGE:Record<string,string>={emerging:"bg-blue-500/15 text-blue-300",trending:"bg-emerald-500/15 text-emerald-300",saturated:"bg-amber-500/10 text-amber-300",fading:"bg-red-500/10 text-red-300"};
 
 const LP:Record<string,string>={pumpdotfun:"pump.fun",letsbonk:"LetsBonk",bags:"Bags",moonshot:"Moonshot",jupstudio:"Jup Studio",launchlab:"LaunchLab"};
 const BC=["#f0b90b","#34d399","#60a5fa","#c084fc","#f472b6"];
@@ -255,15 +254,15 @@ export default function UnifiedDashboard(){
               return(
                 <motion.button key={nr.name} onClick={()=>nav(`/narrative/${encodeURIComponent(nr.name)}`)}
                   initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.1+i*0.05,duration:0.3}}
-                  className={`bg-gradient-to-br ${LC_GRAD[nr.lifecycle]||LC_GRAD.fading} border ${LC_BORDER[nr.lifecycle]||LC_BORDER.fading} rounded-xl p-4 text-left hover:scale-[1.02] active:scale-[0.98] transition-all w-full group relative overflow-hidden`}>
-                  {heat>=2&&<div className="absolute top-2 right-2 text-sm opacity-50">{heat>=3?"🔥🔥":"🔥"}</div>}
+                  className={`bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] border-l-2 ${LC_LEFT[nr.lifecycle]||LC_LEFT.fading} rounded-xl p-4 text-left hover:bg-white/[0.04] hover:border-white/[0.1] active:scale-[0.98] transition-all w-full group relative`}>
+                  {heat>=2&&<div className="absolute top-2 right-2 text-sm opacity-40">{heat>=3?"🔥🔥":"🔥"}</div>}
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-bold text-white/90 group-hover:text-white">{nr.name}</span>
+                    <span className="text-sm font-bold text-white/80 group-hover:text-white">{nr.name}</span>
                     <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${LC_BADGE[nr.lifecycle]||LC_BADGE.fading}`}>{nr.lifecycle}</span>
                   </div>
                   <div className="flex items-center gap-3 text-[10px]">
                     <span className="text-white/40"><span className="text-white/60 font-semibold">{nr.token_count}</span> tokens</span>
-                    <span className="text-white/30">{$(nr.total_volume)}</span>
+                    <span className="text-white/25">{$(nr.total_volume)}</span>
                     <span className={`font-bold ${nr.avg_gain_pct>0?"text-emerald-400":"text-red-400"}`}>{P(nr.avg_gain_pct)}</span>
                   </div>
                 </motion.button>
