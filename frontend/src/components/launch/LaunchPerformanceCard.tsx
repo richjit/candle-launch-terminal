@@ -113,7 +113,7 @@ export default function LaunchPerformanceCard({ metric }: { metric: LaunchMetric
         <div className="w-28 flex-shrink-0" />
         <div className="flex-1 text-[10px] text-terminal-muted/40 uppercase tracking-wider">Peak Mcap</div>
         <div className="w-20 text-right text-[10px] text-terminal-muted/40 uppercase tracking-wider">Mcap</div>
-        <div className="w-14 text-right text-[10px] text-terminal-muted/40 uppercase tracking-wider">Time</div>
+        <div className="w-14 text-right text-[10px] text-terminal-muted/40 uppercase tracking-wider">Reached after</div>
       </div>
 
       {/* Tiers */}
