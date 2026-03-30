@@ -182,11 +182,11 @@ async def lifespan(app: FastAPI):
         max_instances=1,
     )
 
-    # Hourly refresh of launchpad stats from Dune
+    # Refresh launchpad stats from Dune every 6 hours (~40 credits/day, fits free tier)
     scheduler.add_job(
         refresh_launchpad_stats,
         args=[db_engine, http_client],
-        trigger=IntervalTrigger(seconds=3600),  # Every hour
+        trigger=IntervalTrigger(seconds=21600),  # Every 6 hours
         id="refresh_launchpad_stats",
         replace_existing=True,
         max_instances=1,
