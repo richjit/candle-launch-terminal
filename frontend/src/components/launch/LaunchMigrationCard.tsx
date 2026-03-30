@@ -38,12 +38,23 @@ export default function LaunchMigrationCard({ metric }: { metric: LaunchMetricDa
   const totalGraduated = (metric as Record<string, unknown>).total_graduated as number | undefined;
   const totalLaunches = (metric as Record<string, unknown>).total_launches as number | undefined;
 
-  // Sort launchpads by graduated count
-  const sorted = Object.entries(breakdown)
-    .filter(([, v]) => v != null && v > 0)
-    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
+  // Breakdown can be either {platform: count} or {platform: {creates, graduated, rate}}
+  const isRichBreakdown = Object.values(breakdown).some(
+    (v) => v != null && typeof v === "object"
+  );
 
-  const maxCount = sorted.length > 0 ? (sorted[0][1] ?? 0) : 0;
+  type PlatformData = { creates: number; graduated: number; rate: number };
+  const platforms: [string, PlatformData][] = isRichBreakdown
+    ? Object.entries(breakdown)
+        .filter(([, v]) => v != null && typeof v === "object")
+        .map(([k, v]) => [k, v as unknown as PlatformData])
+        .sort((a, b) => b[1].creates - a[1].creates)
+    : Object.entries(breakdown)
+        .filter(([, v]) => v != null && (v as number) > 0)
+        .sort((a, b) => (b[1] as number) - (a[1] as number))
+        .map(([k, v]) => [k, { creates: v as number, graduated: 0, rate: 0 }]);
+
+  const maxCreates = platforms.length > 0 ? platforms[0][1].creates : 0;
 
   return (
     <div
@@ -77,30 +88,41 @@ export default function LaunchMigrationCard({ metric }: { metric: LaunchMetricDa
         )}
       </div>
 
-      {/* Per-launchpad bars */}
-      {sorted.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-[10px] text-terminal-muted/50 uppercase tracking-wider mb-1">
-            By launchpad
+      {/* Per-launchpad table */}
+      {platforms.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-[10px] text-terminal-muted/50 uppercase tracking-wider mb-2">
+            <span className="w-20">Platform</span>
+            <span className="flex-1">Creates</span>
+            <span className="w-14 text-right">Grads</span>
+            <span className="w-12 text-right">Rate</span>
           </div>
-          {sorted.slice(0, 5).map(([lp, count], i) => {
-            const pct = maxCount > 0 ? ((count ?? 0) / maxCount) * 100 : 0;
+          {platforms.slice(0, 6).map(([lp, data], i) => {
+            const pct = maxCreates > 0 ? (data.creates / maxCreates) * 100 : 0;
             const label = LP_LABELS[lp] || lp;
             const barColor = LP_COLORS[i % LP_COLORS.length];
 
             return (
-              <div key={lp} className="flex items-center gap-3">
+              <div key={lp} className="flex items-center gap-2">
                 <div className="w-20 flex-shrink-0 text-xs text-terminal-text truncate">
                   {label}
                 </div>
-                <div className="flex-1 h-2 rounded-full bg-terminal-border/40 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${barColor} transition-all duration-500`}
-                    style={{ width: `${Math.max(pct, 2)}%` }}
-                  />
+                <div className="flex-1 flex items-center gap-2">
+                  <div className="flex-1 h-2 rounded-full bg-terminal-border/40 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${barColor} transition-all duration-500`}
+                      style={{ width: `${Math.max(pct, 2)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] tabular-nums text-terminal-muted w-12 text-right">
+                    {data.creates.toLocaleString()}
+                  </span>
                 </div>
-                <div className="w-14 text-right text-xs tabular-nums text-terminal-muted">
-                  {(count ?? 0).toLocaleString()}
+                <div className="w-14 text-right text-[10px] tabular-nums text-terminal-green">
+                  {data.graduated > 0 ? data.graduated.toLocaleString() : "--"}
+                </div>
+                <div className="w-12 text-right text-[10px] tabular-nums text-terminal-muted">
+                  {data.rate > 0 ? `${data.rate}%` : "--"}
                 </div>
               </div>
             );

@@ -289,12 +289,36 @@ async def _get_live_launch_stats() -> dict:
                 name = row.source.replace("creates_", "")
                 platform_creates[name] = int(row.value)
 
+        # Per-platform graduation counts
+        platform_grads = {}
+        if full_day_creates:
+            grad_rows = (await session.execute(
+                select(HistoricalData)
+                .where(HistoricalData.source.like("grads_%"))
+                .where(HistoricalData.date == full_day_creates.date)
+            )).scalars().all()
+            for row in grad_rows:
+                name = row.source.replace("grads_", "")
+                platform_grads[name] = int(row.value)
+
+        total_grads = sum(platform_grads.values()) if platform_grads else (
+            int(full_day_grads.value) if full_day_grads else len(graduated_tokens)
+        )
+
         if full_day_creates and full_day_creates.value > 0:
             total_launches = int(full_day_creates.value)
-            if full_day_grads:
-                migration_rate = full_day_grads.value / full_day_creates.value * 100
-            elif graduated_tokens:
-                migration_rate = len(graduated_tokens) / full_day_creates.value * 100
+            migration_rate = total_grads / full_day_creates.value * 100
+
+    # Build per-platform migration data: creates + grads + rate
+    platform_migration = {}
+    for name, creates in (platform_creates or {}).items():
+        grads = platform_grads.get(name, 0)
+        rate = (grads / creates * 100) if creates > 0 else 0
+        platform_migration[name] = {
+            "creates": creates,
+            "graduated": grads,
+            "rate": round(rate, 2),
+        }
 
     return {
         "daily_launches": total_launches,
@@ -305,8 +329,8 @@ async def _get_live_launch_stats() -> dict:
         "median_time_to_peak": median(times) if times else None,
         "avg_buy_sell_ratio": (sum(ratios) / len(ratios)) if ratios else None,
         "migration_rate": migration_rate,
-        "migration_breakdown": dict(graduated_by_lp),
-        "total_graduated": len(graduated_tokens),
+        "migration_breakdown": platform_migration or dict(graduated_by_lp),
+        "total_graduated": total_grads,
     }
 
 
