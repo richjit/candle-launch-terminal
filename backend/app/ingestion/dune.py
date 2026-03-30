@@ -105,55 +105,33 @@ async def _execute_and_poll(
     return None
 
 
-PUMPFUN_CREATES_SQL = """\
-SELECT DATE_TRUNC('day', block_time) as day, COUNT(*) as creates
-FROM (
-    SELECT MIN(block_time) as block_time, token_mint_address
+# Daily pump.fun creates (token mints from pump.fun program) + graduations
+# (tokens whose first-ever DEX trade on pumpswap/raydium happened that day).
+PUMPFUN_LAUNCH_STATS_SQL = """\
+WITH first_dex_trade AS (
+    SELECT token_bought_mint_address AS token,
+           MIN(block_time) AS first_trade
+    FROM dex_solana.trades
+    WHERE block_time >= NOW() - INTERVAL '90' DAY
+      AND project IN ('pumpswap', 'raydium')
+      AND token_bought_mint_address LIKE '%pump'
+    GROUP BY 1
+),
+creates AS (
+    SELECT DATE_TRUNC('day', block_time) AS day,
+           COUNT(DISTINCT token_mint_address) AS created
     FROM tokens_solana.transfers
     WHERE block_time >= NOW() - INTERVAL '90' DAY
-      AND action = 'mint'
-      AND amount > 0
-    GROUP BY token_mint_address
-) t
-GROUP BY 1
-ORDER BY 1
-"""
-
-# Count daily token migrations = tokens that had their first-ever DEX trade.
-# Excludes pump.fun bonding curve (pumpdotfun project) — only counts real DEX trades.
-# This is the universal migration signal across all launchpads.
-DEX_MIGRATIONS_SQL = """\
-WITH first_trade AS (
-    SELECT
-        token_bought_mint_address AS token_mint,
-        MIN(block_time) AS first_time
-    FROM dex_solana.trades
-    WHERE block_time >= NOW() - INTERVAL '90' DAY
-      AND project != 'pumpdotfun'
-      AND token_bought_mint_address != 'So11111111111111111111111111111111111111112'
-    GROUP BY 1
-
-    UNION ALL
-
-    SELECT
-        token_sold_mint_address AS token_mint,
-        MIN(block_time) AS first_time
-    FROM dex_solana.trades
-    WHERE block_time >= NOW() - INTERVAL '90' DAY
-      AND project != 'pumpdotfun'
-      AND token_sold_mint_address != 'So11111111111111111111111111111111111111112'
+      AND action = 'mint' AND amount > 0
+      AND outer_executing_account = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
     GROUP BY 1
 )
-SELECT
-    DATE_TRUNC('day', MIN(first_time)) AS day,
-    COUNT(*) AS migrations
-FROM (
-    SELECT token_mint, MIN(first_time) AS first_time
-    FROM first_trade
-    GROUP BY 1
-) t
-GROUP BY 1
-ORDER BY 1
+SELECT c.day, c.created,
+       COUNT(f.token) AS graduated
+FROM creates c
+LEFT JOIN first_dex_trade f ON DATE_TRUNC('day', f.first_trade) = c.day
+GROUP BY c.day, c.created
+ORDER BY c.day
 """
 
 
@@ -295,76 +273,122 @@ async def ingest_priority_fees(engine, http_client: httpx.AsyncClient) -> int:
     return len(db_rows)
 
 
-async def ingest_pumpfun_creates(engine, http_client: httpx.AsyncClient) -> int:
-    """Fetch daily pump.fun token creation counts from Dune via inline SQL.
+async def ingest_pumpfun_launch_stats(engine, http_client: httpx.AsyncClient) -> int:
+    """Fetch daily pump.fun launch + graduation stats from Dune.
 
-    Counts unique new tokens first traded on pump.fun each day.
-    Stored in HistoricalData with source='pumpfun_creates'.
+    Uses pump.fun's decoded tables for exact counts:
+    - pump_call_create = tokens created
+    - pump_call_withdraw = tokens graduated (filled bonding curve)
+
+    Stores creates in 'pumpfun_creates' and graduations in 'pumpfun_graduations'.
     """
-    source = "pumpfun_creates"
-    if await _check_existing(engine, source):
-        logger.info("Pump.fun creates data already ingested, skipping")
+    if await _check_existing(engine, "pumpfun_creates"):
+        logger.info("Pump.fun launch stats already ingested, skipping")
         return 0
 
     api_key = _get_api_key()
     if not api_key:
-        logger.info("DUNE_API_KEY not set, skipping pumpfun_creates ingestion")
+        logger.info("DUNE_API_KEY not set, skipping pumpfun launch stats")
         return 0
 
-    rows = await _execute_sql_and_poll(http_client, api_key, PUMPFUN_CREATES_SQL)
+    rows = await _execute_sql_and_poll(http_client, api_key, PUMPFUN_LAUNCH_STATS_SQL, timeout_seconds=600)
     if rows is None:
-        logger.error("Failed to fetch pump.fun creates data from Dune")
+        logger.error("Failed to fetch pump.fun launch stats from Dune")
         return 0
 
     db_rows = []
     for row in rows:
         day_str = row.get("day")
-        creates = row.get("creates")
-        if day_str and creates is not None:
-            dt = datetime.fromisoformat(day_str.replace(" UTC", "+00:00").replace("Z", "+00:00")).date()
-            db_rows.append(HistoricalData(source=source, date=dt, value=float(creates)))
+        if not day_str:
+            continue
+        dt = datetime.fromisoformat(day_str.replace(" UTC", "+00:00").replace("Z", "+00:00")).date()
+
+        created = row.get("created")
+        graduated = row.get("graduated")
+
+        if created is not None:
+            db_rows.append(HistoricalData(source="pumpfun_creates", date=dt, value=float(created)))
+        if graduated is not None:
+            db_rows.append(HistoricalData(source="pumpfun_graduations", date=dt, value=float(graduated)))
 
     async with get_session(engine) as session:
         session.add_all(db_rows)
         await session.commit()
 
-    logger.info(f"Ingested {len(db_rows)} pumpfun_creates data points from Dune")
+    logger.info(f"Ingested {len(db_rows)} pump.fun launch stat rows from Dune")
     return len(db_rows)
 
 
-async def ingest_dex_migrations(engine, http_client: httpx.AsyncClient) -> int:
-    """Fetch daily DEX migration counts from Dune via inline SQL.
+async def refresh_pumpfun_launch_stats(engine, http_client: httpx.AsyncClient) -> int:
+    """Daily refresh: fetch latest pump.fun stats and upsert recent days.
 
-    Counts tokens that had their first-ever trade on a real DEX each day.
-    This is the universal migration signal across all launchpads.
-    Stored in HistoricalData with source='dex_migrations'.
+    Only fetches last 3 days to keep it fast, and upserts (updates existing rows).
+    Designed to run on a daily schedule.
     """
-    source = "dex_migrations"
-    if await _check_existing(engine, source):
-        logger.info("DEX migrations data already ingested, skipping")
-        return 0
-
     api_key = _get_api_key()
     if not api_key:
-        logger.info("DUNE_API_KEY not set, skipping dex_migrations ingestion")
         return 0
 
-    rows = await _execute_sql_and_poll(http_client, api_key, DEX_MIGRATIONS_SQL, timeout_seconds=600)
+    # Shorter query: just last 3 days
+    sql = """\
+    WITH first_dex_trade AS (
+        SELECT token_bought_mint_address AS token,
+               MIN(block_time) AS first_trade
+        FROM dex_solana.trades
+        WHERE block_time >= NOW() - INTERVAL '7' DAY
+          AND project IN ('pumpswap', 'raydium')
+          AND token_bought_mint_address LIKE '%pump'
+        GROUP BY 1
+        HAVING MIN(block_time) >= NOW() - INTERVAL '3' DAY
+    ),
+    creates AS (
+        SELECT DATE_TRUNC('day', block_time) AS day,
+               COUNT(DISTINCT token_mint_address) AS created
+        FROM tokens_solana.transfers
+        WHERE block_time >= NOW() - INTERVAL '3' DAY
+          AND action = 'mint' AND amount > 0
+          AND outer_executing_account = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
+        GROUP BY 1
+    )
+    SELECT c.day, c.created, COUNT(f.token) AS graduated
+    FROM creates c
+    LEFT JOIN first_dex_trade f ON DATE_TRUNC('day', f.first_trade) = c.day
+    GROUP BY c.day, c.created
+    ORDER BY c.day
+    """
+
+    rows = await _execute_sql_and_poll(http_client, api_key, sql, timeout_seconds=120)
     if rows is None:
-        logger.error("Failed to fetch DEX migrations data from Dune")
+        logger.warning("Failed to refresh pump.fun launch stats")
         return 0
 
-    db_rows = []
-    for row in rows:
-        day_str = row.get("day")
-        migrations = row.get("migrations")
-        if day_str and migrations is not None:
-            dt = datetime.fromisoformat(day_str.replace(" UTC", "+00:00").replace("Z", "+00:00")).date()
-            db_rows.append(HistoricalData(source=source, date=dt, value=float(migrations)))
-
+    updated = 0
     async with get_session(engine) as session:
-        session.add_all(db_rows)
+        for row in rows:
+            day_str = row.get("day")
+            if not day_str:
+                continue
+            dt = datetime.fromisoformat(day_str.replace(" UTC", "+00:00").replace("Z", "+00:00")).date()
+
+            for source, key in [("pumpfun_creates", "created"), ("pumpfun_graduations", "graduated")]:
+                value = row.get(key)
+                if value is None:
+                    continue
+
+                existing = (await session.execute(
+                    select(HistoricalData)
+                    .where(HistoricalData.source == source)
+                    .where(HistoricalData.date == dt)
+                )).scalar_one_or_none()
+
+                if existing:
+                    existing.value = float(value)
+                else:
+                    session.add(HistoricalData(source=source, date=dt, value=float(value)))
+                updated += 1
+
         await session.commit()
 
-    logger.info(f"Ingested {len(db_rows)} dex_migrations data points from Dune")
-    return len(db_rows)
+    if updated:
+        logger.info(f"Refreshed {updated} pump.fun launch stat rows from Dune")
+    return updated

@@ -250,38 +250,38 @@ async def _get_live_launch_stats() -> dict:
     for t in graduated_tokens:
         graduated_by_lp[t.launchpad] += 1
 
-    # Migration rate: use Dune on-chain data for both numerator and denominator
-    # Numerator: dex_migrations (tokens with first-ever DEX trade)
-    # Denominator: pumpfun_creates (all new token mints on Solana)
+    # Migration rate from Dune on-chain data (pump.fun decoded tables)
+    # Numerator: pumpfun_graduations (pump_call_withdraw)
+    # Denominator: pumpfun_creates (pump_call_create)
     migration_rate = None
     total_launches = len(recent_tokens)
     async with get_session(_engine) as session:
-        # Denominator: most recent full-day creates (>20K to avoid partial days)
+        # Most recent full-day creates (>5K to avoid partial days)
         result = await session.execute(
             select(HistoricalData)
             .where(HistoricalData.source == "pumpfun_creates")
-            .where(HistoricalData.value >= 20000)
+            .where(HistoricalData.value >= 5000)
             .order_by(HistoricalData.date.desc())
             .limit(1)
         )
         full_day_creates = result.scalar_one_or_none()
 
-        # Numerator: most recent full-day migrations
-        result2 = await session.execute(
-            select(HistoricalData)
-            .where(HistoricalData.source == "dex_migrations")
-            .where(HistoricalData.value >= 100)  # Sanity check for full day
-            .order_by(HistoricalData.date.desc())
-            .limit(1)
-        )
-        full_day_migrations = result2.scalar_one_or_none()
+        # Most recent graduations for the same day
+        if full_day_creates:
+            result2 = await session.execute(
+                select(HistoricalData)
+                .where(HistoricalData.source == "pumpfun_graduations")
+                .where(HistoricalData.date == full_day_creates.date)
+            )
+            full_day_grads = result2.scalar_one_or_none()
+        else:
+            full_day_grads = None
 
         if full_day_creates and full_day_creates.value > 0:
             total_launches = int(full_day_creates.value)
-            if full_day_migrations:
-                migration_rate = full_day_migrations.value / full_day_creates.value * 100
+            if full_day_grads:
+                migration_rate = full_day_grads.value / full_day_creates.value * 100
             elif graduated_tokens:
-                # Fall back to our discovery data if Dune migrations not yet ingested
                 migration_rate = len(graduated_tokens) / full_day_creates.value * 100
 
     return {
