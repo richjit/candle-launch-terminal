@@ -19,9 +19,8 @@ function HeroSummary({ data }: { data: LaunchOverviewData }) {
   const survival = metrics.find((m) => m.name === "Survival Rate (24h)");
   const volume = metrics.find((m) => m.name === "Volume");
 
-  const totalLaunches = (activity as Record<string, unknown> | undefined)?.total_launches as number | undefined;
-  const launchCount = totalLaunches ?? 0;
-  const migrationRate = activity?.current;
+  const launchCount = activity?.current ?? 0;
+  const migrationRate = (activity as Record<string, unknown> | undefined)?.migration_rate as number | undefined;
   const survivalRate = survival?.current;
 
   // Determine overall market condition
@@ -59,7 +58,7 @@ function HeroSummary({ data }: { data: LaunchOverviewData }) {
           </div>
           {migrationRate !== null && migrationRate !== undefined && (
             <div className="text-sm text-terminal-muted mt-1">
-              {migrationRate.toFixed(1)}% migration rate from pump.fun
+              {migrationRate.toFixed(1)}% graduation rate
             </div>
           )}
         </div>
