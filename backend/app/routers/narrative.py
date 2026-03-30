@@ -24,7 +24,7 @@ async def get_overview():
     async with get_session(_engine) as session:
         narratives = (await session.execute(
             select(Narrative)
-            .where(Narrative.token_count >= 3)
+            .where(Narrative.token_count >= 2)
             .where(Narrative.total_volume >= 10000)
             .order_by((Narrative.avg_gain_pct * Narrative.total_volume).desc())
         )).scalars().all()
