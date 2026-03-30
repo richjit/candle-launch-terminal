@@ -19,7 +19,10 @@ export default function Pulse() {
   const [correlations, setCorrelations] = useState<CorrelationsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [excludedFactors, setExcludedFactors] = useState<Set<string>>(new Set());
+  // Only TVL, Fear & Greed, and Chain Fees selected by default
+  const [excludedFactors, setExcludedFactors] = useState<Set<string>>(
+    new Set(["dex_volume", "stablecoin_supply", "vol_regime", "new_wallets", "priority_fees"])
+  );
 
   const chartRef = useRef<CandlestickChartHandle>(null);
 
@@ -39,8 +42,9 @@ export default function Pulse() {
     async function init() {
       setLoading(true);
       try {
+        const defaultExcluded = ["dex_volume", "stablecoin_supply", "vol_regime", "new_wallets", "priority_fees"];
         const [chart, corr] = await Promise.all([
-          fetchChart("all"),
+          fetchChart("all", defaultExcluded),
           fetchCorrelations(),
         ]);
         setChartData(chart);
