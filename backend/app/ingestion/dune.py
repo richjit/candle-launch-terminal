@@ -625,7 +625,10 @@ async def ingest_launchpad_stats(engine, http_client: httpx.AsyncClient) -> int:
     Stores per-platform creates as 'creates_{platform}' and total as 'pumpfun_creates'.
     Stores per-platform graduations as 'grads_{platform}' and total as 'pumpfun_graduations'.
     """
-    if await _check_existing(engine, "pumpfun_creates"):
+    creates_exist = await _check_existing(engine, "pumpfun_creates")
+    grads_exist = await _check_existing(engine, "pumpfun_graduations")
+
+    if creates_exist and grads_exist:
         logger.info("Launchpad stats already ingested, skipping")
         return 0
 
@@ -636,8 +639,12 @@ async def ingest_launchpad_stats(engine, http_client: httpx.AsyncClient) -> int:
 
     total = 0
 
-    # 1. Creates per platform
-    rows = await _execute_sql_and_poll(http_client, api_key, LAUNCHPAD_CREATES_SQL, timeout_seconds=600)
+    # 1. Creates per platform (skip if already have data)
+    if creates_exist:
+        logger.info("Creates data exists, skipping to graduations")
+        rows = None
+    else:
+        rows = await _execute_sql_and_poll(http_client, api_key, LAUNCHPAD_CREATES_SQL, timeout_seconds=600)
     if rows:
         db_rows = []
         # Aggregate daily totals + per-platform
