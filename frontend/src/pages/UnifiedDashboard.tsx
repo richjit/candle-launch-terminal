@@ -244,7 +244,7 @@ export default function UnifiedDashboard(){
         {/* Narratives */}
         <div>
           <div className="flex items-center gap-1 mb-1">
-            <span className="text-xs text-white/50 uppercase tracking-[0.12em] font-bold">What to Launch</span>
+            <span className="text-xs text-white/50 uppercase tracking-[0.12em] font-bold">What to Launch — Current Narratives</span>
             <InfoIcon text="AI-classified trending token themes. Narratives with momentum are marked Trending. Fire icons show high average gains. Click to explore tokens."/>
           </div>
           <div className="text-[8px] text-red-400/25 mb-2">Includes unverified tokens for narrative identification. Not investment advice.</div>
