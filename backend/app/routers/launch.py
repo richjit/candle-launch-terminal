@@ -309,27 +309,15 @@ async def _get_live_launch_stats() -> dict:
             total_launches = int(full_day_creates.value)
             migration_rate = total_grads / full_day_creates.value * 100
 
-    # Build per-platform migration data: creates + grads + rate
-    platform_migration = {}
-    for name, creates in (platform_creates or {}).items():
-        grads = platform_grads.get(name, 0)
-        rate = (grads / creates * 100) if creates > 0 else 0
-        platform_migration[name] = {
-            "creates": creates,
-            "graduated": grads,
-            "rate": round(rate, 2),
-        }
-
     return {
         "daily_launches": total_launches,
-        "daily_launches_breakdown": platform_creates or dict(by_lp),
+        "launches_by_platform": platform_creates or dict(by_lp),
         "total_tracked": len(recent_tokens),
         "survival_rate": (len(alive) / len(recent_tokens) * 100) if recent_tokens else None,
         "median_peak_mcap_1h": median(peaks) if peaks else None,
         "median_time_to_peak": median(times) if times else None,
         "avg_buy_sell_ratio": (sum(ratios) / len(ratios)) if ratios else None,
         "migration_rate": migration_rate,
-        "migration_breakdown": platform_migration or dict(graduated_by_lp),
         "total_graduated": total_grads,
     }
 
@@ -413,10 +401,10 @@ async def get_overview(range: str = Query("30d")):
     else:
         perf = _live_metric_response("Launch Performance", live.get("median_peak_mcap_1h"), lu)
         metrics = [
-            _live_metric_response("Launchpad Activity", live.get("migration_rate"), lu,
-                                  breakdown=live.get("migration_breakdown"),
+            _live_metric_response("Launchpad Activity", live.get("daily_launches", 0), lu,
+                                  breakdown=live.get("launches_by_platform"),
                                   extra={"total_graduated": live.get("total_graduated", 0),
-                                         "total_launches": live.get("daily_launches", 0)}),
+                                         "migration_rate": live.get("migration_rate")}),
             _live_metric_response("Survival Rate (24h)", live.get("survival_rate"), lu),
             _live_metric_response("Buy/Sell Ratio", live.get("avg_buy_sell_ratio"), lu),
         ]
