@@ -1,4 +1,5 @@
 """Narrative pipeline: orchestrates scan -> filter -> classify -> aggregate -> lifecycle."""
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -9,7 +10,9 @@ from app.narrative.models import NarrativeToken, Narrative
 from app.narrative.scanner import scan_trending_tokens
 from app.narrative.filters import filter_duplicates, filter_scams
 from app.narrative.classifier import classify_narratives
-from app.launch.peak_backfill import _get_best_pair_info, _fetch_peak_data
+from app.launch.peak_backfill import _get_best_pair_info
+
+GECKO_OHLCV_DAY_URL = "https://api.geckoterminal.com/api/v2/networks/solana/pools/{pool}/ohlcv/day"
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +74,7 @@ async def run_narrative_pipeline(engine, http_client, groq_api_key: str) -> int:
             if existing:
                 new_mcap = t.get("mcap") or 0
                 existing.mcap = new_mcap
-                existing.mcap_ath = max(existing.mcap_ath or 0, new_mcap)
+                # Don't touch mcap_ath here — it's set by _backfill_ath from OHLCV
                 existing.price_change_pct = t.get("price_change_pct")
                 existing.volume_24h = t.get("volume_24h")
                 existing.liquidity_usd = t.get("liquidity_usd")
@@ -89,7 +92,7 @@ async def run_narrative_pipeline(engine, http_client, groq_api_key: str) -> int:
                     pair_address=t.get("pair_address", ""),
                     narrative=narrative,
                     mcap=t.get("mcap"),
-                    mcap_ath=t.get("mcap") or 0,
+                    mcap_ath=None,  # Set by _backfill_ath from OHLCV
                     price_change_pct=t.get("price_change_pct"),
                     volume_24h=t.get("volume_24h"),
                     liquidity_usd=t.get("liquidity_usd"),
@@ -114,22 +117,45 @@ async def run_narrative_pipeline(engine, http_client, groq_api_key: str) -> int:
 
 
 async def _backfill_ath(engine, http_client):
-    """Fetch actual ATH mcap from OHLCV candles for narrative tokens."""
+    """Fetch actual ATH mcap from daily OHLCV candles for narrative tokens."""
     async with get_session(engine) as session:
-        tokens = (await session.execute(select(NarrativeToken))).scalars().all()
+        # Only backfill tokens missing ATH
+        all_tokens = (await session.execute(
+            select(NarrativeToken).where(NarrativeToken.mcap_ath.is_(None))
+        )).scalars().all()
 
-    async with get_session(engine) as session:
-        for token in (await session.execute(select(NarrativeToken))).scalars().all():
+        for token in all_tokens:
+            await asyncio.sleep(2)  # Rate limit: GeckoTerminal allows 30/min
             try:
                 info = await _get_best_pair_info(token.address, http_client)
-                if not info or not info.get("pairAddress"):
+                if not info or not info.get("pairAddress") or not info.get("priceUsd") or info["priceUsd"] <= 0:
                     continue
-                peak_price, _ = await _fetch_peak_data(info["pairAddress"], http_client)
-                if peak_price and info.get("priceUsd") and info["priceUsd"] > 0 and info.get("marketCap"):
-                    ath = info["marketCap"] * (peak_price / info["priceUsd"])
-                    token.mcap_ath = ath
+
+                # Use daily candles for full history (up to 100 days)
+                resp = await http_client.get(
+                    GECKO_OHLCV_DAY_URL.format(pool=info["pairAddress"]),
+                    params={"aggregate": 1, "limit": 100, "currency": "usd"},
+                    headers={"Accept": "application/json"},
+                    timeout=15.0,
+                )
+                if resp.status_code != 200:
+                    continue
+
+                candles = resp.json().get("data", {}).get("attributes", {}).get("ohlcv_list", [])
+                if not candles:
+                    continue
+
+                # Find highest daily high price with volume
+                credible = [c[2] for c in candles if c[2] and c[2] > 0 and len(c) > 5 and (c[5] or 0) > 0]
+                if not credible:
+                    continue
+
+                peak_price = max(credible)
+                ath = info["marketCap"] * (peak_price / info["priceUsd"])
+                token.mcap_ath = ath
+                logger.debug(f"ATH {token.name[:15]}: ${ath:,.0f} (peak_price={peak_price:.6f})")
             except Exception as e:
-                logger.debug(f"ATH fetch failed for {token.address[:12]}: {e}")
+                logger.warning(f"ATH fetch failed for {token.address[:12]}: {e}")
 
         await session.commit()
 
