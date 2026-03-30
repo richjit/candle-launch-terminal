@@ -183,7 +183,7 @@ export default function LaunchPerformanceCard({ metric }: { metric: LaunchMetric
             <div className="w-28 flex-shrink-0">
               <div className="text-xs font-medium text-terminal-red/70">All Launches</div>
               <div className="text-[10px] text-terminal-muted/50 leading-tight">
-                Median including unbonded ({tiers.all_count?.toLocaleString()} tokens)
+                Median including unbonded
               </div>
             </div>
             <div className="flex-1 text-terminal-red/70">
