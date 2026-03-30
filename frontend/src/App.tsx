@@ -1,26 +1,20 @@
 // frontend/src/App.tsx
 import { Routes, Route, Navigate } from "react-router-dom";
-import Sidebar from "./components/layout/Sidebar";
-import Pulse from "./pages/Pulse";
-import LaunchDashboard from "./pages/LaunchDashboard";
+import UnifiedDashboard from "./pages/UnifiedDashboard";
 import LaunchDetail from "./pages/LaunchDetail";
-import NarrativeDashboard from "./pages/NarrativeDashboard";
 import NarrativeDetail from "./pages/NarrativeDetail";
 
 export default function App() {
   return (
-    <div className="flex h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto p-6">
-        <Routes>
-          <Route path="/" element={<Navigate to="/pulse" replace />} />
-          <Route path="/pulse" element={<Pulse />} />
-          <Route path="/launch" element={<LaunchDashboard />} />
-          <Route path="/launch/:metric" element={<LaunchDetail />} />
-          <Route path="/narrative" element={<NarrativeDashboard />} />
-          <Route path="/narrative/:name" element={<NarrativeDetail />} />
-        </Routes>
-      </main>
-    </div>
+    <main className="min-h-screen overflow-y-auto p-6 bg-terminal-bg">
+      <Routes>
+        <Route path="/" element={<UnifiedDashboard />} />
+        <Route path="/launch/:metric" element={<LaunchDetail />} />
+        <Route path="/narrative/:name" element={<NarrativeDetail />} />
+        <Route path="/pulse" element={<Navigate to="/" replace />} />
+        <Route path="/launch" element={<Navigate to="/" replace />} />
+        <Route path="/narrative" element={<Navigate to="/" replace />} />
+      </Routes>
+    </main>
   );
 }

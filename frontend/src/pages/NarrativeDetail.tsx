@@ -35,10 +35,10 @@ export default function NarrativeDetail() {
   return (
     <PageLayout title={name || "Narrative"}>
       <button
-        onClick={() => navigate("/narrative")}
+        onClick={() => navigate("/")}
         className="text-sm text-terminal-muted hover:text-terminal-text transition-colors mb-6"
       >
-        ← Back to narratives
+        ← Back to dashboard
       </button>
 
       {loading && !data && <div className="text-terminal-muted text-center py-16">Loading...</div>}

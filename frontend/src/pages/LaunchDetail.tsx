@@ -361,10 +361,10 @@ export default function LaunchDetail() {
     <PageLayout title={title}>
       <div className="flex items-center justify-between mb-6">
         <button
-          onClick={() => navigate("/launch")}
+          onClick={() => navigate("/")}
           className="text-sm text-terminal-muted hover:text-terminal-text transition-colors"
         >
-          ← Back to monitor
+          ← Back to dashboard
         </button>
         <span className="text-[10px] text-terminal-muted/40">24h</span>
       </div>
