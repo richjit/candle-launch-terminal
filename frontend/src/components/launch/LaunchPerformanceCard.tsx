@@ -36,13 +36,6 @@ const TIER_CONFIG = [
     dotColor: "bg-terminal-accent shadow-[0_0_6px_rgba(240,185,11,0.4)]",
   },
   {
-    key: "top1" as const,
-    label: "Top 1%",
-    description: "Breakout launches — the winners",
-    color: "text-terminal-green",
-    dotColor: "bg-terminal-green shadow-[0_0_6px_rgba(0,230,118,0.4)]",
-  },
-  {
     key: "top10" as const,
     label: "Top 10%",
     description: "Tokens that got some traction",
