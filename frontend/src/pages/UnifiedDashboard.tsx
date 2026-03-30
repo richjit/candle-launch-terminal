@@ -91,6 +91,7 @@ function RunnerRow({ token }: { token: NarrativeTokenData }) {
 export default function UnifiedDashboard() {
   const navigate = useNavigate();
   const chartRef = useRef<CandlestickChartHandle>(null);
+  const initialRangeSet = useRef(false);
 
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const { data: launchData } = useApiPolling<LaunchOverviewData>("/launch/overview?range=30d", 60000);
@@ -105,13 +106,15 @@ export default function UnifiedDashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  // Set 90d range only on first load — don't reset when polling refreshes data
   useEffect(() => {
-    if (!chartData) return;
+    if (!chartData || initialRangeSet.current) return;
     const timer = setTimeout(() => {
       const chart = chartRef.current?.getChart();
       if (chart) {
         const now = Math.floor(Date.now() / 1000);
         chart.timeScale().setVisibleRange({ from: (now - 90 * 86400) as any, to: now as any });
+        initialRangeSet.current = true;
       }
     }, 50);
     return () => clearTimeout(timer);
