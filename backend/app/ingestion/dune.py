@@ -105,10 +105,20 @@ async def _execute_and_poll(
     return None
 
 
-# Daily pump.fun creates (token mints from pump.fun program) + graduations
-# (tokens whose first-ever DEX trade on pumpswap/raydium happened that day).
+# Daily pump.fun token launches + graduations from dex_solana.trades.
+# Creates: unique tokens traded on pumpdotfun + pumpswap (bonding curve + DEX).
+# Graduations: tokens whose first-ever trade on pumpswap/raydium (real DEX) happened that day.
 PUMPFUN_LAUNCH_STATS_SQL = """\
-WITH first_dex_trade AS (
+WITH all_pf_tokens AS (
+    SELECT DATE_TRUNC('day', block_time) AS day,
+           COUNT(DISTINCT token_bought_mint_address) AS created
+    FROM dex_solana.trades
+    WHERE block_time >= NOW() - INTERVAL '90' DAY
+      AND project IN ('pumpdotfun', 'pumpswap')
+      AND token_bought_mint_address != 'So11111111111111111111111111111111111111112'
+    GROUP BY 1
+),
+first_dex_trade AS (
     SELECT token_bought_mint_address AS token,
            MIN(block_time) AS first_trade
     FROM dex_solana.trades
@@ -116,19 +126,10 @@ WITH first_dex_trade AS (
       AND project IN ('pumpswap', 'raydium')
       AND token_bought_mint_address LIKE '%pump'
     GROUP BY 1
-),
-creates AS (
-    SELECT DATE_TRUNC('day', block_time) AS day,
-           COUNT(DISTINCT token_mint_address) AS created
-    FROM tokens_solana.transfers
-    WHERE block_time >= NOW() - INTERVAL '90' DAY
-      AND action = 'mint' AND amount > 0
-      AND outer_executing_account = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
-    GROUP BY 1
 )
 SELECT c.day, c.created,
        COUNT(f.token) AS graduated
-FROM creates c
+FROM all_pf_tokens c
 LEFT JOIN first_dex_trade f ON DATE_TRUNC('day', f.first_trade) = c.day
 GROUP BY c.day, c.created
 ORDER BY c.day
@@ -331,7 +332,16 @@ async def refresh_pumpfun_launch_stats(engine, http_client: httpx.AsyncClient) -
 
     # Shorter query: just last 3 days
     sql = """\
-    WITH first_dex_trade AS (
+    WITH all_pf_tokens AS (
+        SELECT DATE_TRUNC('day', block_time) AS day,
+               COUNT(DISTINCT token_bought_mint_address) AS created
+        FROM dex_solana.trades
+        WHERE block_time >= NOW() - INTERVAL '3' DAY
+          AND project IN ('pumpdotfun', 'pumpswap')
+          AND token_bought_mint_address != 'So11111111111111111111111111111111111111112'
+        GROUP BY 1
+    ),
+    first_dex_trade AS (
         SELECT token_bought_mint_address AS token,
                MIN(block_time) AS first_trade
         FROM dex_solana.trades
@@ -340,18 +350,9 @@ async def refresh_pumpfun_launch_stats(engine, http_client: httpx.AsyncClient) -
           AND token_bought_mint_address LIKE '%pump'
         GROUP BY 1
         HAVING MIN(block_time) >= NOW() - INTERVAL '3' DAY
-    ),
-    creates AS (
-        SELECT DATE_TRUNC('day', block_time) AS day,
-               COUNT(DISTINCT token_mint_address) AS created
-        FROM tokens_solana.transfers
-        WHERE block_time >= NOW() - INTERVAL '3' DAY
-          AND action = 'mint' AND amount > 0
-          AND outer_executing_account = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
-        GROUP BY 1
     )
     SELECT c.day, c.created, COUNT(f.token) AS graduated
-    FROM creates c
+    FROM all_pf_tokens c
     LEFT JOIN first_dex_trade f ON DATE_TRUNC('day', f.first_trade) = c.day
     GROUP BY c.day, c.created
     ORDER BY c.day
