@@ -27,7 +27,7 @@ from app.launch.discovery import discover_new_launches
 from app.launch.enrichment import enrich_tracked_tokens
 from app.launch.aggregation import aggregate_launch_stats, cleanup_old_tokens
 from app.launch.verification import verify_tokens
-from app.ingestion.dune import refresh_pumpfun_launch_stats
+from app.ingestion.dune import refresh_launchpad_stats
 from app.launch.peak_backfill import backfill_peak_mcaps
 from app.ingestion.runner import run_backfill
 from app.analysis.correlation import compute_correlations
@@ -182,12 +182,12 @@ async def lifespan(app: FastAPI):
         max_instances=1,
     )
 
-    # Daily refresh of pump.fun launch stats from Dune
+    # Hourly refresh of launchpad stats from Dune
     scheduler.add_job(
-        refresh_pumpfun_launch_stats,
+        refresh_launchpad_stats,
         args=[db_engine, http_client],
         trigger=IntervalTrigger(seconds=3600),  # Every hour
-        id="refresh_pumpfun_stats",
+        id="refresh_launchpad_stats",
         replace_existing=True,
         max_instances=1,
     )
