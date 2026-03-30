@@ -112,8 +112,7 @@ export default function UnifiedDashboard() {
     const timer = setTimeout(() => {
       const chart = chartRef.current?.getChart();
       if (chart) {
-        const now = Math.floor(Date.now() / 1000);
-        chart.timeScale().setVisibleRange({ from: (now - 90 * 86400) as any, to: now as any });
+        chart.timeScale().fitContent();
         initialRangeSet.current = true;
       }
     }, 50);
