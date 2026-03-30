@@ -9,6 +9,7 @@ from app.narrative.models import NarrativeToken, Narrative
 from app.narrative.scanner import scan_trending_tokens
 from app.narrative.filters import filter_duplicates, filter_scams
 from app.narrative.classifier import classify_narratives
+from app.launch.peak_backfill import _get_best_pair_info, _fetch_peak_data
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +103,35 @@ async def run_narrative_pipeline(engine, http_client, groq_api_key: str) -> int:
 
         await session.commit()
 
-    # 6. Aggregate narratives
+    # 6. Fetch real ATH from OHLCV candles
+    await _backfill_ath(engine, http_client)
+
+    # 7. Aggregate narratives
     await _aggregate_narratives(engine, now)
 
     logger.info(f"Narrative pipeline processed {len(tokens)} tokens")
     return len(tokens)
+
+
+async def _backfill_ath(engine, http_client):
+    """Fetch actual ATH mcap from OHLCV candles for narrative tokens."""
+    async with get_session(engine) as session:
+        tokens = (await session.execute(select(NarrativeToken))).scalars().all()
+
+    async with get_session(engine) as session:
+        for token in (await session.execute(select(NarrativeToken))).scalars().all():
+            try:
+                info = await _get_best_pair_info(token.address, http_client)
+                if not info or not info.get("pairAddress"):
+                    continue
+                peak_price, _ = await _fetch_peak_data(info["pairAddress"], http_client)
+                if peak_price and info.get("priceUsd") and info["priceUsd"] > 0 and info.get("marketCap"):
+                    ath = info["marketCap"] * (peak_price / info["priceUsd"])
+                    token.mcap_ath = ath
+            except Exception as e:
+                logger.debug(f"ATH fetch failed for {token.address[:12]}: {e}")
+
+        await session.commit()
 
 
 async def _aggregate_narratives(engine, now: datetime):
