@@ -87,7 +87,7 @@ async def get_narrative_detail(name: str):
 
         tokens = (await session.execute(
             select(NarrativeToken)
-            .where(NarrativeToken.narrative == name)
+            .where(NarrativeToken.narrative.contains(name))
             .order_by(NarrativeToken.price_change_pct.desc())
         )).scalars().all()
 
