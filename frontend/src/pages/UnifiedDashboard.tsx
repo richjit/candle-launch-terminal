@@ -288,7 +288,8 @@ export default function UnifiedDashboard(){
                   className="flex items-center gap-2 py-2 border-b border-white/[0.04] last:border-0 group hover:bg-white/[0.02] transition-colors rounded px-1 -mx-1">
                   <span className="text-xs w-5 text-center">{i<3?medals[i]:<span className="text-white/15 text-[10px]">#{i+1}</span>}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-semibold text-white/80 group-hover:text-white truncate">{t.name}</div>
+                    <a href={`https://dexscreener.com/solana/${t.address}`} target="_blank" rel="noopener noreferrer"
+                      onClick={e=>e.stopPropagation()} className="text-[12px] font-semibold text-white/80 hover:text-amber-400 transition-colors truncate block">{t.name}</a>
                     <div className="text-[9px] text-white/25">
                       {t.narrative&&<span className="text-amber-400/50">{t.narrative}</span>}
                       {t.narrative&&<span className="mx-1">·</span>}
@@ -299,10 +300,6 @@ export default function UnifiedDashboard(){
                     {P(t.price_change_pct)}
                   </div>
                   <span className="text-[10px] tabular-nums text-white/20 w-14 text-right">{t.mcap?$(t.mcap):"--"}</span>
-                  <a href={`https://dexscreener.com/solana/${t.address}`} target="_blank" rel="noopener noreferrer"
-                    onClick={e=>e.stopPropagation()} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                    <img src={DS_ICON} alt="DexScreener" className="w-4 h-4 rounded" onError={e=>{(e.target as HTMLImageElement).style.display='none'}}/>
-                  </a>
                 </motion.div>
               );
             })}

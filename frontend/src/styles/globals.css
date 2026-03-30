@@ -21,3 +21,11 @@ body {
   font-family: var(--font-mono);
   margin: 0;
 }
+
+/* Hide scrollbar but keep scroll */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
