@@ -101,25 +101,25 @@ const LP_LABELS: Record<string, string> = {
 
 function PerformanceDetail({ metric }: { metric: LaunchMetricData }) {
   const tiers = metric.tiers;
-  if (!tiers) return <div className="text-terminal-muted">Collecting data...</div>;
+  if (!tiers) return <div className="text-white/30">Collecting data...</div>;
 
   const ttp = tiers.time_to_peak;
   const tierRows = [
-    { key: "best24h", label: "Best (24h)", color: "text-terminal-accent" },
-    { key: "top1", label: "Top 1%", color: "text-terminal-green" },
+    { key: "best24h", label: "Best (24h)", color: "text-amber-400" },
+    { key: "top1", label: "Top 1%", color: "text-emerald-400" },
     { key: "top10", label: "Top 10%", color: "text-blue-400" },
-    { key: "bonded", label: "Bonded (median)", color: "text-terminal-text" },
+    { key: "bonded", label: "Bonded (median)", color: "text-white/80" },
   ] as const;
 
   return (
     <div className="space-y-6">
-      <div className="bg-terminal-card border border-terminal-border rounded-lg p-5">
-        <div className="text-xs text-terminal-muted uppercase tracking-wider mb-4">
+      <div className="bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] rounded-2xl p-5">
+        <div className="text-xs text-white/30 uppercase tracking-wider mb-4">
           Performance Tiers — {tiers.sample_size} graduated tokens (24h)
         </div>
         <table className="w-full">
           <thead>
-            <tr className="text-[11px] text-terminal-muted/50 uppercase tracking-wider">
+            <tr className="text-[11px] text-white/30/50 uppercase tracking-wider">
               <th className="text-left pb-3 font-medium">Tier</th>
               <th className="text-right pb-3 font-medium">Peak Mcap</th>
               <th className="text-right pb-3 font-medium">Time to Peak</th>
@@ -127,12 +127,12 @@ function PerformanceDetail({ metric }: { metric: LaunchMetricData }) {
           </thead>
           <tbody>
             {tierRows.map((t) => (
-              <tr key={t.key} className="border-t border-terminal-border/20">
+              <tr key={t.key} className="border-t border-white/[0.06]/20">
                 <td className={`py-3 text-sm font-medium ${t.color}`}>{t.label}</td>
                 <td className={`py-3 text-sm font-bold text-right tabular-nums ${t.color}`}>
                   {formatMcap(tiers[t.key])}
                 </td>
-                <td className="py-3 text-sm text-right tabular-nums text-terminal-muted">
+                <td className="py-3 text-sm text-right tabular-nums text-white/30">
                   {formatTime(ttp?.[t.key] ?? null)}
                 </td>
               </tr>
@@ -141,11 +141,11 @@ function PerformanceDetail({ metric }: { metric: LaunchMetricData }) {
         </table>
 
         {tiers.all_median != null && (
-          <div className="mt-4 pt-3 border-t border-terminal-border/30 flex justify-between text-sm">
-            <span className="text-terminal-red/70">All Launches (median)</span>
-            <span className="text-terminal-red/70 font-bold tabular-nums">
+          <div className="mt-4 pt-3 border-t border-white/[0.06]/30 flex justify-between text-sm">
+            <span className="text-red-400/70">All Launches (median)</span>
+            <span className="text-red-400/70 font-bold tabular-nums">
               {formatMcap(tiers.all_median)}
-              <span className="font-normal text-terminal-muted ml-2">
+              <span className="font-normal text-white/30 ml-2">
                 ({tiers.all_count?.toLocaleString()} tokens)
               </span>
             </span>
@@ -154,19 +154,19 @@ function PerformanceDetail({ metric }: { metric: LaunchMetricData }) {
       </div>
 
       {tiers.best_address && (
-        <div className="bg-terminal-card border border-terminal-border rounded-lg p-5">
-          <div className="text-xs text-terminal-muted uppercase tracking-wider mb-3">
+        <div className="bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] rounded-2xl p-5">
+          <div className="text-xs text-white/30 uppercase tracking-wider mb-3">
             Best Performer (24h)
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-2xl font-bold text-terminal-accent">{formatMcap(tiers.best24h)}</span>
+            <span className="text-2xl font-bold text-amber-400">{formatMcap(tiers.best24h)}</span>
             <div className="text-sm">
-              <div className="font-mono text-terminal-muted">{truncateAddress(tiers.best_address)}</div>
+              <div className="font-mono text-white/30">{truncateAddress(tiers.best_address)}</div>
               <a
                 href={`https://dexscreener.com/solana/${tiers.best_address}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-terminal-accent/70 hover:text-terminal-accent text-xs underline underline-offset-2"
+                className="text-amber-400/70 hover:text-amber-400 text-xs underline underline-offset-2"
               >
                 View on DexScreener
               </a>
@@ -189,34 +189,34 @@ function MigrationDetail({ metric }: { metric: LaunchMetricData }) {
 
   return (
     <div className="space-y-6">
-      <div className="bg-terminal-card border border-terminal-border rounded-lg p-5">
+      <div className="bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] rounded-2xl p-5">
         <div className="grid grid-cols-3 gap-6">
           <div>
-            <div className="text-xs text-terminal-muted uppercase tracking-wider mb-1">Rate</div>
-            <div className="text-3xl font-bold text-terminal-text">
+            <div className="text-xs text-white/30 uppercase tracking-wider mb-1">Rate</div>
+            <div className="text-3xl font-bold text-white/80">
               {metric.current != null ? `${metric.current.toFixed(2)}%` : "--"}
             </div>
           </div>
           <div>
-            <div className="text-xs text-terminal-muted uppercase tracking-wider mb-1">Graduated</div>
-            <div className="text-3xl font-bold text-terminal-green">{totalGraduated?.toLocaleString() ?? "--"}</div>
+            <div className="text-xs text-white/30 uppercase tracking-wider mb-1">Graduated</div>
+            <div className="text-3xl font-bold text-emerald-400">{totalGraduated?.toLocaleString() ?? "--"}</div>
           </div>
           <div>
-            <div className="text-xs text-terminal-muted uppercase tracking-wider mb-1">Total Created</div>
-            <div className="text-3xl font-bold text-terminal-muted">{totalLaunches?.toLocaleString() ?? "--"}</div>
+            <div className="text-xs text-white/30 uppercase tracking-wider mb-1">Total Created</div>
+            <div className="text-3xl font-bold text-white/30">{totalLaunches?.toLocaleString() ?? "--"}</div>
           </div>
         </div>
       </div>
 
       {sorted.length > 0 && (
-        <div className="bg-terminal-card border border-terminal-border rounded-lg p-5">
-          <div className="text-xs text-terminal-muted uppercase tracking-wider mb-4">By Launchpad</div>
+        <div className="bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] rounded-2xl p-5">
+          <div className="text-xs text-white/30 uppercase tracking-wider mb-4">By Launchpad</div>
           <div className="space-y-3">
             {sorted.map(([lp, count]) => {
               const pct = totalGraduated ? ((count ?? 0) / totalGraduated * 100) : 0;
               return (
                 <div key={lp} className="flex items-center gap-4">
-                  <div className="w-24 text-sm text-terminal-text font-medium">
+                  <div className="w-24 text-sm text-white/80 font-medium">
                     {LP_LABELS[lp] || lp}
                   </div>
                   <div className="flex-1 h-3 rounded-full bg-terminal-border/40 overflow-hidden">
@@ -225,10 +225,10 @@ function MigrationDetail({ metric }: { metric: LaunchMetricData }) {
                       style={{ width: `${Math.max(pct, 1)}%` }}
                     />
                   </div>
-                  <div className="w-20 text-right text-sm tabular-nums text-terminal-muted">
+                  <div className="w-20 text-right text-sm tabular-nums text-white/30">
                     {(count ?? 0).toLocaleString()}
                   </div>
-                  <div className="w-16 text-right text-xs tabular-nums text-terminal-muted/50">
+                  <div className="w-16 text-right text-xs tabular-nums text-white/30/50">
                     {pct.toFixed(1)}%
                   </div>
                 </div>
@@ -244,14 +244,14 @@ function MigrationDetail({ metric }: { metric: LaunchMetricData }) {
 function SimpleMetricDetail({ metric, unit }: { metric: LaunchMetricData; unit?: string }) {
   return (
     <div className="space-y-6">
-      <div className="bg-terminal-card border border-terminal-border rounded-lg p-5">
+      <div className="bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] rounded-2xl p-5">
         <div className="flex items-baseline gap-3">
-          <span className="text-4xl font-bold text-terminal-text">
+          <span className="text-4xl font-bold text-white/80">
             {formatValue(metric.current, unit)}
           </span>
           <span className={`text-sm ${
-            metric.trend === "up" ? "text-terminal-green" :
-            metric.trend === "down" ? "text-terminal-red" : "text-terminal-muted"
+            metric.trend === "up" ? "text-emerald-400" :
+            metric.trend === "down" ? "text-red-400" : "text-white/30"
           }`}>
             {metric.trend === "up" ? "Trending up" : metric.trend === "down" ? "Trending down" : "Stable"}
           </span>
@@ -259,14 +259,14 @@ function SimpleMetricDetail({ metric, unit }: { metric: LaunchMetricData; unit?:
       </div>
 
       {metric.chart.length > 1 && (
-        <div className="bg-terminal-card border border-terminal-border rounded-lg p-5">
+        <div className="bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] rounded-2xl p-5">
           <AreaChart data={metric.chart} />
         </div>
       )}
 
       {metric.breakdown && Object.keys(metric.breakdown).length > 0 && (
-        <div className="bg-terminal-card border border-terminal-border rounded-lg p-5">
-          <div className="text-xs text-terminal-muted uppercase tracking-wider mb-3">Breakdown</div>
+        <div className="bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] rounded-2xl p-5">
+          <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Breakdown</div>
           <LaunchBreakdownTable breakdown={metric.breakdown} />
         </div>
       )}
@@ -277,7 +277,7 @@ function SimpleMetricDetail({ metric, unit }: { metric: LaunchMetricData; unit?:
 function AreaChart({ data }: { data: { date: string; value: number | null }[] }) {
   const entries = data.filter((d) => d.value !== null) as { date: string; value: number }[];
   if (entries.length < 2)
-    return <div className="text-terminal-muted py-12 text-center text-sm">Not enough chart data yet</div>;
+    return <div className="text-white/30 py-12 text-center text-sm">Not enough chart data yet</div>;
 
   const values = entries.map((d) => d.value);
   const min = Math.min(...values);
@@ -362,23 +362,23 @@ export default function LaunchDetail() {
       <div className="flex items-center justify-between mb-6">
         <button
           onClick={() => navigate("/")}
-          className="text-sm text-terminal-muted hover:text-terminal-text transition-colors"
+          className="text-sm text-white/30 hover:text-white/80 transition-colors"
         >
           ← Back to dashboard
         </button>
-        <span className="text-[10px] text-terminal-muted/40">24h</span>
+        <span className="text-[10px] text-white/30/40">24h</span>
       </div>
 
       {meta && (
-        <p className="text-sm text-terminal-muted mb-6 max-w-2xl leading-relaxed">{meta.description}</p>
+        <p className="text-sm text-white/30 mb-6 max-w-2xl leading-relaxed">{meta.description}</p>
       )}
 
       {loading && !data && (
-        <div className="text-terminal-muted text-center py-16">Loading...</div>
+        <div className="text-white/30 text-center py-16">Loading...</div>
       )}
 
       {error && (
-        <div className="text-terminal-red text-center py-4 text-sm">{error}</div>
+        <div className="text-red-400 text-center py-4 text-sm">{error}</div>
       )}
 
       {metric && slug === "peak-mcap" && <PerformanceDetail metric={metric} />}
