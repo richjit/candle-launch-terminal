@@ -150,7 +150,7 @@ export default function UnifiedDashboard(){
           ):<div className="h-full flex items-center justify-center text-white/15 text-xs animate-pulse">Loading SOL chart...</div>}
         </G>
         <G className="p-4 flex flex-col justify-center" delay={0.15}>
-          <div className="text-[9px] text-white/25 uppercase tracking-[0.15em] font-semibold mb-2">Market Conditions</div>
+          <div className="text-xs text-white/50 uppercase tracking-[0.12em] font-bold mb-2">Market Conditions</div>
           <Check label="24h Launches" value={launches} good={launches>10000} display={N(launches)}/>
           <Check label="Graduation Rate" value={gradRate??null} good={(gradRate??0)>1} display={`${(gradRate??0).toFixed(1)}%`}/>
           <Check label="24h Survival" value={surv?.current??null} good={(surv?.current??0)>20} display={`${(surv?.current??0).toFixed(0)}%`}/>
@@ -164,7 +164,7 @@ export default function UnifiedDashboard(){
         {/* Launch Performance — DexScreener link INLINE with Best row */}
         <G className="p-4" delay={0.2}>
           <div className="flex items-center gap-1 mb-3">
-            <span className="text-[9px] text-white/25 uppercase tracking-[0.15em] font-semibold">Launch Performance</span>
+            <span className="text-xs text-white/50 uppercase tracking-[0.12em] font-bold">Launch Performance</span>
             <InfoIcon text="Peak market cap that graduated tokens reached. 'Peaked after' shows how long from launch to ATH."/>
           </div>
           {tiers?<div className="space-y-1">
@@ -217,7 +217,7 @@ export default function UnifiedDashboard(){
         {/* Launchpad Activity — NO duplicate stats, just the per-platform bars */}
         <G className="p-4" delay={0.25}>
           <div className="flex items-center gap-1 mb-3">
-            <span className="text-[9px] text-white/25 uppercase tracking-[0.15em] font-semibold">Launchpad Activity</span>
+            <span className="text-xs text-white/50 uppercase tracking-[0.12em] font-bold">Launchpad Activity</span>
             <InfoIcon text="Token launches per platform from Dune on-chain data. Shows which launchpads developers are using most."/>
           </div>
           <div className="space-y-1.5">
@@ -245,7 +245,7 @@ export default function UnifiedDashboard(){
         {/* Narratives */}
         <div>
           <div className="flex items-center gap-1 mb-1">
-            <span className="text-[9px] text-white/25 uppercase tracking-[0.15em] font-semibold">What to Launch</span>
+            <span className="text-xs text-white/50 uppercase tracking-[0.12em] font-bold">What to Launch</span>
             <InfoIcon text="AI-classified trending token themes. Narratives with momentum are marked Trending. Fire icons show high average gains. Click to explore tokens."/>
           </div>
           <div className="text-[8px] text-red-400/25 mb-2">Includes unverified tokens for narrative identification. Not investment advice.</div>
@@ -276,7 +276,7 @@ export default function UnifiedDashboard(){
         {/* Runners — capped height with scroll */}
         <div>
           <div className="flex items-center gap-1 mb-2">
-            <span className="text-[9px] text-white/25 uppercase tracking-[0.15em] font-semibold">Top Runners</span>
+            <span className="text-xs text-white/50 uppercase tracking-[0.12em] font-bold">Top Runners</span>
             <InfoIcon text="Tokens with highest gains in 24h. Hover a row to see the DexScreener link."/>
           </div>
           <G className="p-3 max-h-[400px] overflow-y-auto" delay={0.3}>
