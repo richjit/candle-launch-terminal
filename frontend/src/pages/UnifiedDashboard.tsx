@@ -8,366 +8,298 @@ import type { ChartData } from "../types/pulse";
 import type { LaunchOverviewData, LaunchPerformanceTiers } from "../types/launch";
 import type { NarrativeOverview, NarrativeData, NarrativeTokenData } from "../types/narrative";
 
-// ── Helpers ──
+// ── Formatters ──
+const $ = (v: number) => v >= 1e9 ? `$${(v/1e9).toFixed(1)}B` : v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
+const n = (v: number) => v >= 1e6 ? `${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `${(v/1e3).toFixed(1)}K` : v.toLocaleString();
+const pct = (v: number|null) => v == null ? "--" : `${v > 0 ? "+" : ""}${v.toFixed(0)}%`;
+const tm = (m: number|null) => { if (m == null) return "--"; if (m < 60) return `${Math.round(m)}m`; const h = Math.floor(m/60); if (h >= 24) { const d = Math.floor(h/24); const rh = h%24; return rh ? `${d}d ${rh}h` : `${d}d`; } return `${h}h ${Math.round(m%60)}m`; };
+const age = (c: string|null) => { if (!c) return "--"; const h = Math.floor((Date.now()-new Date(c).getTime())/36e5); return h >= 24 ? `${Math.floor(h/24)}d` : h > 0 ? `${h}h` : `${Math.floor((Date.now()-new Date(c).getTime())/6e4)}m`; };
 
-function fmt(v: number): string {
-  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
-  return `$${v.toFixed(0)}`;
-}
-
-function fmtN(v: number): string {
-  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
-  return v.toLocaleString();
-}
-
-function fmtPct(v: number | null): string {
-  if (v == null) return "--";
-  return `${v > 0 ? "+" : ""}${v.toFixed(0)}%`;
-}
-
-function fmtTime(m: number | null): string {
-  if (m == null) return "--";
-  if (m < 60) return `${Math.round(m)}m`;
-  const h = Math.floor(m / 60);
-  if (h >= 24) { const d = Math.floor(h / 24); return d > 0 && h % 24 > 0 ? `${d}d ${h % 24}h` : `${d}d`; }
-  return `${h}h ${Math.round(m % 60)}m`;
-}
-
-function fmtAge(c: string | null): string {
-  if (!c) return "--";
-  const h = Math.floor((Date.now() - new Date(c).getTime()) / 3600000);
-  if (h >= 24) return `${Math.floor(h / 24)}d`;
-  if (h > 0) return `${h}h`;
-  return `${Math.floor((Date.now() - new Date(c).getTime()) / 60000)}m`;
-}
-
-function truncAddr(a: string): string {
-  return a.length <= 10 ? a : `${a.slice(0, 4)}...${a.slice(-4)}`;
-}
-
-// ── Micro Components ──
-
-function LivePulse() {
-  return (
-    <span className="relative flex h-1.5 w-1.5">
-      <span className="animate-ping absolute h-full w-full rounded-full bg-terminal-green opacity-75" />
-      <span className="relative rounded-full h-1.5 w-1.5 bg-terminal-green" />
-    </span>
-  );
-}
-
-function Tip({ text }: { text: string }) {
-  const [show, setShow] = useState(false);
-  return (
-    <span className="relative inline-block ml-1">
-      <button onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}
-        className="text-terminal-muted/20 hover:text-terminal-muted/50 transition-colors text-[9px] w-3 h-3 rounded-full border border-terminal-muted/20 inline-flex items-center justify-center">?</button>
-      <AnimatePresence>
-        {show && (
-          <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="absolute z-50 bottom-5 left-1/2 -translate-x-1/2 w-52 px-3 py-2 rounded-lg bg-[#1a1c2a] border border-white/10 text-[10px] text-terminal-muted leading-relaxed shadow-2xl">
-            {text}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </span>
-  );
-}
-
-function SH({ t, info }: { t: string; info: string }) {
-  return (
-    <div className="flex items-center gap-1 mb-2">
-      <span className="text-[9px] text-terminal-muted/40 uppercase tracking-[0.15em] font-medium">{t}</span>
-      <Tip text={info} />
-    </div>
-  );
+// ── Animated Number ──
+function Counter({ value, duration = 700 }: { value: number; duration?: number }) {
+  const [d, setD] = useState(0);
+  const prev = useRef(0);
+  useEffect(() => {
+    const s = prev.current, e = value, t0 = Date.now();
+    const tick = () => { const p = Math.min((Date.now()-t0)/duration, 1); setD(Math.round(s+(e-s)*(1-Math.pow(1-p,3)))); if (p < 1) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick); prev.current = value;
+  }, [value, duration]);
+  return <>{d.toLocaleString()}</>;
 }
 
 // ── Health Gauge ──
-
-function HealthGauge({ score }: { score: number }) {
-  const r = 44, circ = Math.PI * r, off = circ * (1 - score / 100);
-  const color = score >= 70 ? "#00e676" : score <= 30 ? "#ff1744" : "#f0b90b";
-  const label = score >= 70 ? "Launch Window" : score <= 30 ? "Danger Zone" : "Neutral";
+function Gauge({ score }: { score: number }) {
+  const r = 40, c = Math.PI*r, off = c*(1-score/100);
+  const col = score >= 70 ? "#00e676" : score <= 30 ? "#ff1744" : "#f0b90b";
+  const lab = score >= 70 ? "LAUNCH WINDOW" : score <= 30 ? "DANGER ZONE" : "NEUTRAL";
   return (
-    <div className="flex flex-col items-center">
-      <svg width="100" height="58" viewBox="0 0 100 58">
-        <path d="M 6 54 A 44 44 0 0 1 94 54" fill="none" stroke="#1e1e2e" strokeWidth={5} strokeLinecap="round" />
-        <motion.path d="M 6 54 A 44 44 0 0 1 94 54" fill="none" stroke={color} strokeWidth={5} strokeLinecap="round"
-          strokeDasharray={circ} initial={{ strokeDashoffset: circ }} animate={{ strokeDashoffset: off }}
-          transition={{ duration: 1, ease: "easeOut" }} style={{ filter: `drop-shadow(0 0 6px ${color}40)` }} />
+    <div className="flex flex-col items-center justify-center h-full">
+      <svg width="90" height="52" viewBox="0 0 90 52">
+        <path d="M 5 48 A 40 40 0 0 1 85 48" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={4} strokeLinecap="round"/>
+        <motion.path d="M 5 48 A 40 40 0 0 1 85 48" fill="none" stroke={col} strokeWidth={4} strokeLinecap="round"
+          strokeDasharray={c} initial={{strokeDashoffset:c}} animate={{strokeDashoffset:off}}
+          transition={{duration:1.2,ease:"easeOut"}} style={{filter:`drop-shadow(0 0 8px ${col}50)`}}/>
       </svg>
-      <div className="text-center -mt-7">
-        <div className="text-2xl font-bold" style={{ color }}>{score.toFixed(0)}</div>
-        <div className="text-[8px] text-terminal-muted/60 uppercase tracking-wider">{label}</div>
+      <div className="-mt-6 text-center">
+        <div className="text-2xl font-black tracking-tight" style={{color:col}}>{score.toFixed(0)}</div>
+        <div className="text-[7px] tracking-[0.2em] mt-0.5" style={{color:`${col}99`}}>{lab}</div>
       </div>
     </div>
   );
 }
 
-// ── Compact Launch Performance (inline) ──
-
-function PerfTiers({ tiers }: { tiers: LaunchPerformanceTiers }) {
-  const rows = [
-    { k: "best24h" as const, label: "Best (24h)", color: "text-terminal-accent" },
-    { k: "top10" as const, label: "Top 10%", color: "text-blue-400" },
-    { k: "bonded" as const, label: "Bonded", color: "text-terminal-text" },
-  ];
-  const ttp = tiers.time_to_peak;
-  return (
-    <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div key={r.k} className="flex items-center gap-2">
-          <span className={`text-[11px] w-16 flex-shrink-0 ${r.color}`}>{r.label}</span>
-          <div className="flex-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
-            <div className={`h-full rounded-full bg-current ${r.color}`}
-              style={{ width: `${Math.max(2, (Math.log10(tiers[r.k] + 1) / Math.log10(tiers.best24h + 1)) * 100)}%` }} />
-          </div>
-          <span className={`text-[11px] font-bold tabular-nums w-14 text-right ${r.color}`}>{fmt(tiers[r.k])}</span>
-          <span className="text-[10px] tabular-nums w-12 text-right text-terminal-muted/50">{fmtTime(ttp?.[r.k] ?? null)}</span>
-        </div>
-      ))}
-      {tiers.all_median != null && (
-        <div className="flex items-center gap-2 pt-1 border-t border-white/[0.04]">
-          <span className="text-[11px] w-16 flex-shrink-0 text-terminal-red/70">All</span>
-          <div className="flex-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
-            <div className="h-full rounded-full bg-terminal-red/60"
-              style={{ width: `${Math.max(2, (Math.log10(tiers.all_median + 1) / Math.log10(tiers.best24h + 1)) * 100)}%` }} />
-          </div>
-          <span className="text-[11px] font-bold tabular-nums w-14 text-right text-terminal-red/70">{fmt(tiers.all_median)}</span>
-          <span className="w-12" />
-        </div>
-      )}
-      {tiers.best_address && (
-        <div className="text-[9px] text-terminal-muted/40 pt-1">
-          <span className="font-mono">{truncAddr(tiers.best_address)}</span>
-          {" "}
-          <a href={`https://dexscreener.com/solana/${tiers.best_address}`} target="_blank" rel="noopener noreferrer"
-            className="text-terminal-accent/50 hover:text-terminal-accent underline">DexScreener</a>
-        </div>
-      )}
-    </div>
-  );
+// ── Live Dot ──
+function Live() {
+  return <span className="relative flex h-1.5 w-1.5 ml-1.5">
+    <span className="animate-ping absolute h-full w-full rounded-full bg-emerald-400 opacity-60"/>
+    <span className="relative rounded-full h-1.5 w-1.5 bg-emerald-400"/>
+  </span>;
 }
 
-// ── Compact Launchpad Activity (inline) ──
+// ── Tooltip ──
+function Tip({ text }: { text: string }) {
+  const [s, set] = useState(false);
+  return <span className="relative ml-1 inline-block">
+    <button onMouseEnter={()=>set(true)} onMouseLeave={()=>set(false)}
+      className="w-3.5 h-3.5 rounded-full border border-white/10 text-white/15 hover:text-white/40 hover:border-white/20 text-[8px] inline-flex items-center justify-center transition-colors">?</button>
+    <AnimatePresence>{s && <motion.div initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} exit={{opacity:0}}
+      className="absolute z-50 bottom-6 left-1/2 -translate-x-1/2 w-56 px-3 py-2 rounded-lg bg-[#1a1c2e] border border-white/10 text-[10px] text-white/60 leading-relaxed shadow-2xl pointer-events-none">{text}</motion.div>}</AnimatePresence>
+  </span>;
+}
 
-function LaunchpadBars({ breakdown, total, graduated, rate }: {
-  breakdown: Record<string, number>; total: number; graduated: number; rate: number | null;
-}) {
-  const LP: Record<string, string> = { pumpdotfun: "pump.fun", letsbonk: "LetsBonk", bags: "Bags", moonshot: "Moonshot", jupstudio: "Jup Studio", launchlab: "LaunchLab" };
-  const sorted = Object.entries(breakdown).filter(([k, v]) => v > 0 && k !== "moon.it").sort((a, b) => b[1] - a[1]);
-  const max = sorted[0]?.[1] || 1;
-  const colors = ["bg-terminal-accent", "bg-terminal-green", "bg-blue-400", "bg-purple-400", "bg-pink-400", "bg-cyan-400"];
+// ── Section label ──
+function Label({ children, tip }: { children: string; tip: string }) {
+  return <div className="flex items-center mb-2"><span className="text-[9px] text-white/25 uppercase tracking-[0.15em] font-semibold">{children}</span><Tip text={tip}/></div>;
+}
 
-  return (
-    <div>
-      <div className="flex items-baseline gap-4 mb-3">
-        <div><span className="text-xl font-bold text-terminal-text">{fmtN(total)}</span><span className="text-[10px] text-terminal-muted ml-1">launches</span></div>
-        {graduated > 0 && <div><span className="text-lg font-bold text-terminal-green">{fmtN(graduated)}</span><span className="text-[10px] text-terminal-muted ml-1">grads</span></div>}
-        {rate != null && rate > 0 && <div><span className="text-lg font-bold text-terminal-accent">{rate.toFixed(1)}%</span></div>}
-      </div>
-      <div className="space-y-1">
-        {sorted.slice(0, 5).map(([k, v], i) => (
-          <div key={k} className="flex items-center gap-2">
-            <span className="text-[10px] text-terminal-text w-16 truncate">{LP[k] || k}</span>
-            <div className="flex-1 h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
-              <div className={`h-full rounded-full ${colors[i % colors.length]}`} style={{ width: `${Math.max(2, (v / max) * 100)}%` }} />
-            </div>
-            <span className="text-[10px] tabular-nums text-terminal-muted w-12 text-right">{v.toLocaleString()}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+// ── Stat box ──
+function Stat({ label, value, sub, color = "text-white" }: { label: string; value: React.ReactNode; sub?: string; color?: string }) {
+  return <div className="text-center">
+    <div className={`text-lg font-bold ${color}`}>{value}</div>
+    <div className="text-[8px] text-white/30 uppercase tracking-wider">{label}</div>
+    {sub && <div className="text-[9px] text-white/20">{sub}</div>}
+  </div>;
 }
 
 // ── Narrative Card ──
-
-const LC: Record<string, string> = {
-  emerging: "text-blue-400 border-blue-400/20", trending: "text-terminal-green border-terminal-green/20",
-  saturated: "text-terminal-accent border-terminal-accent/20", fading: "text-terminal-red border-terminal-red/20",
+const LC_BG: Record<string,string> = {
+  emerging:"from-blue-500/10 to-transparent border-blue-500/15", trending:"from-emerald-500/10 to-transparent border-emerald-500/15",
+  saturated:"from-amber-500/8 to-transparent border-amber-500/12", fading:"from-red-500/8 to-transparent border-red-500/12"
 };
+const LC_TEXT: Record<string,string> = { emerging:"text-blue-400", trending:"text-emerald-400", saturated:"text-amber-400", fading:"text-red-400" };
 
-function NCard({ n, i, onClick }: { n: NarrativeData; i: number; onClick: () => void }) {
+function NarrCard({ n: nr, i, onClick }: { n: NarrativeData; i: number; onClick: () => void }) {
+  const bg = LC_BG[nr.lifecycle] || LC_BG.fading;
+  const tc = LC_TEXT[nr.lifecycle] || LC_TEXT.fading;
   return (
-    <motion.button onClick={onClick} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: i * 0.04, duration: 0.25 }}
-      className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-2.5 text-left hover:border-terminal-accent/20 hover:bg-white/[0.04] transition-all w-full">
+    <motion.button onClick={onClick} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:i*0.04,duration:0.25}}
+      className={`bg-gradient-to-br ${bg} border rounded-lg p-3 text-left hover:scale-[1.02] transition-all w-full group`}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-bold text-terminal-text">{n.name}</span>
-        <span className={`text-[8px] px-1.5 py-0.5 rounded-full border ${LC[n.lifecycle] || LC.fading} capitalize`}>{n.lifecycle}</span>
+        <span className="text-[13px] font-bold text-white/90 group-hover:text-white">{nr.name}</span>
+        <span className={`text-[8px] font-semibold uppercase tracking-wider ${tc}`}>{nr.lifecycle}</span>
       </div>
-      <div className="flex items-center gap-2 text-[10px] text-terminal-muted">
-        <span>{n.token_count} tok</span>
-        <span>{fmt(n.total_volume)}</span>
-        <span className={n.avg_gain_pct > 0 ? "text-terminal-green" : "text-terminal-red"}>{fmtPct(n.avg_gain_pct)}</span>
+      <div className="flex items-center gap-3 text-[10px] text-white/35">
+        <span className="text-white/50 font-medium">{nr.token_count} tokens</span>
+        <span>{$(nr.total_volume)} vol</span>
+        <span className={nr.avg_gain_pct > 0 ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>{pct(nr.avg_gain_pct)}</span>
       </div>
     </motion.button>
   );
 }
 
 // ── Runner Row ──
-
-function RRow({ t, i }: { t: NarrativeTokenData; i: number }) {
+function Runner({ t, i }: { t: NarrativeTokenData; i: number }) {
+  const up = (t.price_change_pct ?? 0) > 0;
   return (
-    <motion.div initial={{ opacity: 0, x: 6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04, duration: 0.2 }}
-      className="flex items-center gap-2 py-1 border-b border-white/[0.03] last:border-0">
+    <motion.div initial={{opacity:0,x:8}} animate={{opacity:1,x:0}} transition={{delay:i*0.03,duration:0.2}}
+      className="flex items-center gap-2 py-1.5 border-b border-white/[0.03] last:border-0 group">
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1">
-          <span className="text-[11px] font-medium text-terminal-text truncate">{t.name}</span>
-          {!t.is_original && <span className="text-[7px] px-1 rounded bg-terminal-accent/10 text-terminal-accent">fork</span>}
-        </div>
-        <div className="flex items-center gap-1 text-[9px] text-terminal-muted">
-          {t.narrative && <span className="text-terminal-accent">{t.narrative}</span>}
-          <span>{fmtAge(t.created_at)}</span>
+        <div className="text-[11px] font-semibold text-white/80 group-hover:text-white truncate">{t.name}</div>
+        <div className="text-[9px] text-white/25">
+          {t.narrative && <span className="text-amber-400/60">{t.narrative}</span>}
+          {t.narrative && <span className="mx-1">·</span>}
+          {age(t.created_at)}
         </div>
       </div>
-      <span className={`text-[11px] font-bold tabular-nums ${(t.price_change_pct ?? 0) > 0 ? "text-terminal-green" : "text-terminal-red"}`}>
-        {fmtPct(t.price_change_pct)}
-      </span>
-      <span className="text-[9px] tabular-nums text-terminal-muted w-10 text-right">{t.mcap ? fmt(t.mcap) : "--"}</span>
+      <div className={`text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded ${up ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+        {pct(t.price_change_pct)}
+      </div>
+      <span className="text-[9px] tabular-nums text-white/25 w-12 text-right">{t.mcap ? $(t.mcap) : "--"}</span>
       <a href={`https://dexscreener.com/solana/${t.address}`} target="_blank" rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()} className="text-[8px] text-terminal-accent/30 hover:text-terminal-accent">DS</a>
+        onClick={e=>e.stopPropagation()} className="text-[8px] text-amber-400/20 hover:text-amber-400 transition-colors">DS</a>
     </motion.div>
   );
 }
 
-// ── Glass Card wrapper ──
-
-function GCard({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
-  return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.35 }}
-      className={`bg-white/[0.02] backdrop-blur-sm border border-white/[0.06] rounded-xl p-4 ${className}`}>
-      {children}
-    </motion.div>
-  );
+// ── Glass Panel ──
+function Panel({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
+  return <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay,duration:0.3}}
+    className={`bg-white/[0.02] backdrop-blur-sm border border-white/[0.05] rounded-xl ${className}`}>{children}</motion.div>;
 }
 
-// ── Main Dashboard ──
+// ── Performance bars ──
+function PerfRow({ label, value, max, time, color }: { label: string; value: number; max: number; time: number|null; color: string }) {
+  const w = Math.max(3, (Math.log10(value+1)/Math.log10(max+1))*100);
+  return <div className="flex items-center gap-2 py-1">
+    <span className={`text-[10px] w-14 ${color} font-medium`}>{label}</span>
+    <div className="flex-1 h-[3px] rounded-full bg-white/[0.04] overflow-hidden">
+      <motion.div initial={{width:0}} animate={{width:`${w}%`}} transition={{duration:0.8,ease:"easeOut"}}
+        className={`h-full rounded-full`} style={{background: color.includes("amber") ? "#f0b90b" : color.includes("blue") ? "#60a5fa" : color.includes("emerald") ? "#34d399" : color.includes("red") ? "#f87171" : "#e5e7eb"}}/>
+    </div>
+    <span className={`text-[11px] font-bold tabular-nums w-14 text-right ${color}`}>{$(value)}</span>
+    <span className="text-[9px] tabular-nums text-white/20 w-10 text-right">{tm(time)}</span>
+  </div>;
+}
+
+// ── Launchpad bar ──
+const LP_NAMES: Record<string,string> = { pumpdotfun:"pump.fun", letsbonk:"LetsBonk", bags:"Bags", moonshot:"Moonshot", jupstudio:"Jup Studio", launchlab:"LaunchLab" };
+const BAR_COLS = ["#f0b90b","#34d399","#60a5fa","#c084fc","#f472b6","#22d3ee"];
+
+function LPBar({ name, value, max, color }: { name: string; value: number; max: number; color: string }) {
+  return <div className="flex items-center gap-2 py-0.5">
+    <span className="text-[10px] text-white/50 w-16 truncate">{LP_NAMES[name]||name}</span>
+    <div className="flex-1 h-[3px] rounded-full bg-white/[0.04] overflow-hidden">
+      <motion.div initial={{width:0}} animate={{width:`${Math.max(2,(value/max)*100)}%`}} transition={{duration:0.6,ease:"easeOut"}}
+        className="h-full rounded-full" style={{background:color}}/>
+    </div>
+    <span className="text-[9px] tabular-nums text-white/30 w-12 text-right">{value.toLocaleString()}</span>
+  </div>;
+}
+
+// ══════════════════════════════════════════════════════════════
+// MAIN DASHBOARD
+// ══════════════════════════════════════════════════════════════
 
 export default function UnifiedDashboard() {
-  const navigate = useNavigate();
-  const chartRef = useRef<CandlestickChartHandle>(null);
+  const nav = useNavigate();
+  const cRef = useRef<CandlestickChartHandle>(null);
   const rangeSet = useRef(false);
 
-  const [chartData, setChartData] = useState<ChartData | null>(null);
+  const [chart, setChart] = useState<ChartData|null>(null);
   const { data: launch } = useApiPolling<LaunchOverviewData>("/launch/overview?range=30d", 60000);
   const { data: narr } = useApiPolling<NarrativeOverview>("/narrative/overview", 60000);
 
+  // Chart fetch
   useEffect(() => {
-    const exc = ["dex_volume", "stablecoin_supply", "vol_regime", "new_wallets", "priority_fees"];
-    fetchChart("all", exc).then(setChartData).catch(() => {});
-    const iv = setInterval(async () => {
-      try {
-        const d = await fetchChart("all", exc);
-        setChartData((p) => {
-          if (!p || d.candles.length !== p.candles.length) return d;
-          if (d.candles[d.candles.length - 1]?.close !== p.candles[p.candles.length - 1]?.close) return d;
-          return p;
-        });
-      } catch {}
-    }, 60000);
-    return () => clearInterval(iv);
+    const x = ["dex_volume","stablecoin_supply","vol_regime","new_wallets","priority_fees"];
+    fetchChart("all",x).then(setChart).catch(()=>{});
+    const iv = setInterval(async()=>{try{const d=await fetchChart("all",x);setChart(p=>{if(!p||d.candles.length!==p.candles.length)return d;if(d.candles[d.candles.length-1]?.close!==p.candles[p.candles.length-1]?.close)return d;return p;});}catch{}},60000);
+    return ()=>clearInterval(iv);
   }, []);
 
   useEffect(() => {
-    if (!chartData || rangeSet.current) return;
-    const t = setTimeout(() => { chartRef.current?.getChart()?.timeScale().fitContent(); rangeSet.current = true; }, 500);
-    return () => clearTimeout(t);
-  }, [chartData]);
+    if (!chart || rangeSet.current) return;
+    const t = setTimeout(()=>{cRef.current?.getChart()?.timeScale().fitContent();rangeSet.current=true;},500);
+    return ()=>clearTimeout(t);
+  }, [chart]);
 
-  const score = chartData?.scores?.length ? chartData.scores[chartData.scores.length - 1].score : null;
-  const perf = launch?.metrics.find(m => m.name === "Launch Performance");
+  // Extract data
+  const score = chart?.scores?.length ? chart.scores[chart.scores.length-1].score : null;
+  const perf = launch?.metrics.find(m=>m.name==="Launch Performance");
   const tiers = perf?.tiers;
-  const act = launch?.metrics.find(m => m.name === "Launchpad Activity");
+  const act = launch?.metrics.find(m=>m.name==="Launchpad Activity");
   const launches = act?.current ?? 0;
-  const rate = (act as Record<string, unknown> | undefined)?.migration_rate as number | undefined;
-  const grads = (act as Record<string, unknown> | undefined)?.total_graduated as number | undefined;
-  const breakdown = act?.breakdown as Record<string, number> | undefined;
-  const surv = launch?.metrics.find(m => m.name === "Survival Rate (24h)");
-  const vol = launch?.metrics.find(m => m.name === "Volume");
+  const gradRate = (act as any)?.migration_rate as number|undefined;
+  const graduated = (act as any)?.total_graduated as number|undefined;
+  const bd = (act?.breakdown || {}) as Record<string,number>;
+  const surv = launch?.metrics.find(m=>m.name==="Survival Rate (24h)");
+  const bs = launch?.metrics.find(m=>m.name==="Buy/Sell Ratio");
+  const vol = launch?.metrics.find(m=>m.name==="Volume");
+
+  const sorted = Object.entries(bd).filter(([k,v])=>v>0&&k!=="moon.it").sort((a,b)=>b[1]-a[1]);
+  const maxLP = sorted[0]?.[1] || 1;
 
   return (
-    <div className="max-w-[1400px] mx-auto">
-      {/* Background mesh */}
-      <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
-        <div className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-purple-900/[0.06] rounded-full blur-[100px]" />
-        <div className="absolute -bottom-32 -right-32 w-[400px] h-[400px] bg-cyan-900/[0.04] rounded-full blur-[100px]" />
+    <div className="w-full min-h-screen -m-6 p-4 lg:p-5 relative overflow-hidden">
+      {/* Background */}
+      <div className="fixed inset-0 pointer-events-none -z-10">
+        <div className="absolute -top-40 -left-40 w-[600px] h-[600px] bg-purple-900/[0.05] rounded-full blur-[120px]"/>
+        <div className="absolute -bottom-40 -right-40 w-[500px] h-[500px] bg-cyan-900/[0.04] rounded-full blur-[120px]"/>
+        <div className="absolute inset-0" style={{backgroundImage:"radial-gradient(circle, rgba(255,255,255,0.015) 1px, transparent 1px)", backgroundSize:"32px 32px"}}/>
       </div>
 
-      {/* ── Header Bar ── */}
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-terminal-accent font-bold text-base tracking-[0.2em]">CANDLE</span>
-          <LivePulse />
+      {/* ── Header ── */}
+      <motion.div initial={{opacity:0}} animate={{opacity:1}} className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-1.5">
+          <span className="text-amber-400 font-black text-sm tracking-[0.25em]">CANDLE</span>
+          <Live/>
         </div>
-        <div className="flex items-center gap-3 text-[11px]">
-          <span className="text-terminal-muted/40">Launches <span className="text-terminal-text font-bold">{fmtN(launches)}</span></span>
-          {rate != null && <span className="text-terminal-muted/40">Grad <span className="text-terminal-text font-bold">{rate.toFixed(1)}%</span></span>}
-          {surv?.current != null && <span className="text-terminal-muted/40">Survival <span className="text-terminal-text font-bold">{surv.current.toFixed(0)}%</span></span>}
-          {vol?.current != null && <span className="text-terminal-muted/40">Vol <span className="text-terminal-text font-bold">{fmt(vol.current)}</span></span>}
+        <div className="flex items-center gap-5 text-[10px] text-white/30">
+          <span>{n(launches)} <span className="text-white/15">launches</span></span>
+          {gradRate!=null && <span>{gradRate.toFixed(1)}% <span className="text-white/15">graduation</span></span>}
+          {surv?.current!=null && <span>{surv.current.toFixed(0)}% <span className="text-white/15">survival</span></span>}
+          {bs?.current!=null && <span>{bs.current.toFixed(2)} <span className="text-white/15">buy/sell</span></span>}
+          {vol?.current!=null && <span>{$(vol.current)} <span className="text-white/15">volume</span></span>}
         </div>
       </motion.div>
 
-      {/* ── Row 1: Gauge | Chart ── */}
-      <div className="grid grid-cols-[120px_1fr] gap-3 mb-3">
-        <GCard className="flex flex-col items-center justify-center !p-3" delay={0.05}>
-          {score !== null ? <HealthGauge score={score} /> : <div className="text-terminal-muted text-[10px]">...</div>}
-          <Tip text="Health score from TVL, Fear & Greed, Chain Fees. Higher = better launch conditions." />
-        </GCard>
-        <GCard className="!p-0 overflow-hidden" delay={0.1}>
-          {chartData && chartData.candles.length > 0 ? (
-            <CandlestickChart ref={chartRef} candles={chartData.candles} scores={chartData.scores} height={160} />
-          ) : (
-            <div className="h-[160px] flex items-center justify-center text-terminal-muted text-[10px]">Loading...</div>
-          )}
-        </GCard>
+      {/* ── Row 1: Gauge | Chart | Quick Stats ── */}
+      <div className="grid grid-cols-[110px_1fr_200px] gap-3 mb-3">
+        <Panel className="p-3 flex items-center justify-center" delay={0.05}>
+          {score !== null ? <Gauge score={score}/> : <div className="text-white/20 text-[9px]">Loading...</div>}
+        </Panel>
+        <Panel className="!p-0 overflow-hidden" delay={0.1}>
+          {chart && chart.candles.length > 0 ? (
+            <CandlestickChart ref={cRef} candles={chart.candles} scores={chart.scores} height={150}/>
+          ) : <div className="h-[150px] flex items-center justify-center text-white/20 text-[10px]">Loading chart...</div>}
+        </Panel>
+        <Panel className="p-3 flex flex-col justify-center gap-3" delay={0.15}>
+          <Stat label="Launches (24h)" value={<Counter value={launches}/>}/>
+          <div className="grid grid-cols-2 gap-2">
+            <Stat label="Graduated" value={graduated != null ? <Counter value={graduated}/> : "--"} color="text-emerald-400"/>
+            <Stat label="Graduation" value={gradRate != null ? `${gradRate.toFixed(1)}%` : "--"} color="text-amber-400"/>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Stat label="Survival" value={surv?.current != null ? `${surv.current.toFixed(0)}%` : "--"} color={surv?.current != null && surv.current > 50 ? "text-emerald-400" : "text-red-400"}/>
+            <Stat label="Buy/Sell" value={bs?.current != null ? bs.current.toFixed(2) : "--"} color={bs?.current != null && bs.current > 1 ? "text-emerald-400" : "text-red-400"}/>
+          </div>
+        </Panel>
       </div>
 
-      {/* ── Row 2: Performance | Activity ── */}
+      {/* ── Row 2: Performance | Launchpads ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
-        <GCard delay={0.15}>
-          <SH t="Launch Performance" info="Peak market cap tiers for graduated tokens in the last 24h. Shows what different launches achieve." />
-          {tiers ? <PerfTiers tiers={tiers} /> : <div className="text-terminal-muted text-[10px]">Loading...</div>}
-        </GCard>
-        <GCard delay={0.2}>
-          <SH t="Launchpad Activity" info="Token launches across all platforms with graduation rate. Data from Dune on-chain analytics." />
-          {breakdown ? (
-            <LaunchpadBars breakdown={breakdown} total={launches} graduated={grads ?? 0} rate={rate ?? null} />
-          ) : (
-            <div className="text-terminal-muted text-[10px]">Loading...</div>
-          )}
-        </GCard>
+        <Panel className="p-4" delay={0.2}>
+          <Label tip="Peak market cap distribution for graduated tokens. Shows what to expect if you launch now.">Launch Performance</Label>
+          {tiers ? <>
+            <PerfRow label="Best 24h" value={tiers.best24h} max={tiers.best24h} time={tiers.time_to_peak?.best24h??null} color="text-amber-400"/>
+            <PerfRow label="Top 10%" value={tiers.top10} max={tiers.best24h} time={tiers.time_to_peak?.top10??null} color="text-blue-400"/>
+            <PerfRow label="Bonded" value={tiers.bonded} max={tiers.best24h} time={tiers.time_to_peak?.bonded??null} color="text-white/70"/>
+            {tiers.all_median!=null && <PerfRow label="All" value={tiers.all_median} max={tiers.best24h} time={null} color="text-red-400/70"/>}
+            {tiers.best_address && <div className="mt-2 text-[9px] text-white/20">
+              <span className="font-mono">{tiers.best_address.slice(0,6)}...{tiers.best_address.slice(-4)}</span>{" "}
+              <a href={`https://dexscreener.com/solana/${tiers.best_address}`} target="_blank" rel="noopener noreferrer" className="text-amber-400/40 hover:text-amber-400 underline">DexScreener</a>
+            </div>}
+          </> : <div className="text-white/20 text-[10px] py-4">Loading...</div>}
+        </Panel>
+        <Panel className="p-4" delay={0.25}>
+          <Label tip="Token launches per platform from Dune on-chain data. Shows which launchpads are most active.">Launchpad Activity</Label>
+          <div className="flex items-baseline gap-4 mb-3">
+            <div className="text-xl font-black text-white"><Counter value={launches}/></div>
+            {graduated!=null && graduated>0 && <div className="text-sm font-bold text-emerald-400"><Counter value={graduated}/><span className="text-[9px] text-white/20 ml-1 font-normal">graduated</span></div>}
+            {gradRate!=null && <div className="text-sm font-bold text-amber-400">{gradRate.toFixed(1)}%</div>}
+          </div>
+          <div className="space-y-0.5">
+            {sorted.slice(0,5).map(([k,v],i)=><LPBar key={k} name={k} value={v} max={maxLP} color={BAR_COLS[i%BAR_COLS.length]}/>)}
+          </div>
+        </Panel>
       </div>
 
       {/* ── Row 3: Narratives | Runners ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-3">
         <div>
-          <SH t="Trending Narratives" info="AI-classified token themes from DexScreener. Shows what categories are hot. Click to see tokens." />
-          <div className="bg-terminal-red/[0.03] border border-terminal-red/10 rounded px-2 py-1 mb-2">
-            <p className="text-[9px] text-terminal-red/50">Includes unverified tokens for narrative identification. Not investment advice.</p>
-          </div>
+          <Label tip="AI-classified token themes from trending DexScreener data. Click a narrative to see all tokens in it.">Trending Narratives</Label>
+          <div className="text-[8px] text-red-400/30 mb-2">Includes unverified tokens for narrative identification. Not investment advice.</div>
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
-            {narr?.narratives.map((n, i) => (
-              <NCard key={n.name} n={n} i={i} onClick={() => navigate(`/narrative/${encodeURIComponent(n.name)}`)} />
-            ))}
+            {narr?.narratives.map((nr,i)=><NarrCard key={nr.name} n={nr} i={i} onClick={()=>nav(`/narrative/${encodeURIComponent(nr.name)}`)}/>)}
           </div>
-          {(!narr || narr.narratives.length === 0) && (
-            <div className="text-terminal-muted text-center py-6 text-[11px]">Scanning narratives...</div>
-          )}
+          {(!narr || narr.narratives.length===0) && <div className="text-white/20 text-center py-8 text-[10px]">Scanning narratives...</div>}
         </div>
         <div>
-          <SH t="Top Runners" info="Tokens with highest % gain in 24h. DS = DexScreener link." />
-          <GCard className="!p-3" delay={0.25}>
-            {narr?.top_runners.map((t, i) => <RRow key={t.address} t={t} i={i} />)}
-            {(!narr || narr.top_runners.length === 0) && (
-              <div className="text-terminal-muted text-center py-4 text-[10px]">No runners yet</div>
-            )}
-          </GCard>
+          <Label tip="Top tokens by percentage gain in the last 24 hours. DS links to DexScreener.">Top Runners</Label>
+          <Panel className="p-3" delay={0.3}>
+            {narr?.top_runners.map((t,i)=><Runner key={t.address} t={t} i={i}/>)}
+            {(!narr || narr.top_runners.length===0) && <div className="text-white/20 text-center py-4 text-[9px]">No runners yet</div>}
+          </Panel>
         </div>
       </div>
     </div>
