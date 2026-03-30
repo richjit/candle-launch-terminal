@@ -31,7 +31,7 @@ function InfoIcon({text}:{text:string}){
     <button onMouseEnter={()=>set(true)} onMouseLeave={()=>set(false)}
       className="text-white/10 hover:text-white/30 transition-colors"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></button>
     <AnimatePresence>{s&&<motion.div initial={{opacity:0,y:4}} animate={{opacity:1,y:0}} exit={{opacity:0}}
-      className="absolute z-50 bottom-7 left-1/2 -translate-x-1/2 w-56 px-3 py-2 rounded-xl bg-[#1a1c2e]/95 backdrop-blur border border-white/10 text-[10px] text-white/60 leading-relaxed shadow-2xl pointer-events-none">{text}</motion.div>}</AnimatePresence>
+      className="absolute z-50 top-7 right-0 w-64 px-3 py-2.5 rounded-xl bg-[#1a1c2e]/95 backdrop-blur border border-white/10 text-[11px] text-white/60 leading-relaxed shadow-2xl pointer-events-none">{text}</motion.div>}</AnimatePresence>
   </span>;
 }
 
