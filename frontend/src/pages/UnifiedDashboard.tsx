@@ -100,13 +100,24 @@ export default function UnifiedDashboard() {
   useEffect(() => {
     const defaultExcluded = ["dex_volume", "stablecoin_supply", "vol_regime", "new_wallets", "priority_fees"];
     fetchChart("all", defaultExcluded).then(setChartData).catch(() => {});
-    const interval = setInterval(() => {
-      fetchChart("all", defaultExcluded).then(setChartData).catch(() => {});
+    // Poll for new data but only update if candle count changed (avoids chart remount)
+    const interval = setInterval(async () => {
+      try {
+        const newData = await fetchChart("all", defaultExcluded);
+        setChartData((prev) => {
+          if (!prev || newData.candles.length !== prev.candles.length) return newData;
+          // Check if latest candle changed
+          const lastNew = newData.candles[newData.candles.length - 1];
+          const lastOld = prev.candles[prev.candles.length - 1];
+          if (lastNew?.close !== lastOld?.close) return newData;
+          return prev; // Same data, don't trigger re-render
+        });
+      } catch {}
     }, 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // Set 90d range only on first load — don't reset when polling refreshes data
+  // Show full history on first load — delay to let chart component finish mounting
   useEffect(() => {
     if (!chartData || initialRangeSet.current) return;
     const timer = setTimeout(() => {
@@ -115,7 +126,7 @@ export default function UnifiedDashboard() {
         chart.timeScale().fitContent();
         initialRangeSet.current = true;
       }
-    }, 50);
+    }, 500);
     return () => clearTimeout(timer);
   }, [chartData]);
 
