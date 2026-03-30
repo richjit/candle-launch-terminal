@@ -27,7 +27,7 @@ from app.launch.discovery import discover_new_launches
 from app.launch.enrichment import enrich_tracked_tokens
 from app.launch.aggregation import aggregate_launch_stats, cleanup_old_tokens
 from app.launch.verification import verify_tokens
-from app.ingestion.dune import refresh_launchpad_stats
+from app.ingestion.dune import refresh_launchpad_stats, refresh_launchpad_graduations
 from app.launch.peak_backfill import backfill_peak_mcaps
 from app.ingestion.runner import run_backfill
 from app.analysis.correlation import compute_correlations
@@ -182,12 +182,21 @@ async def lifespan(app: FastAPI):
         max_instances=1,
     )
 
-    # Refresh launchpad stats from Dune every 6 hours (~40 credits/day, fits free tier)
+    # Refresh launchpad creates every 6 hours + graduations daily
+    # ~40 + 30 = ~70 credits/day = ~2,100/month (fits 2,500 free tier)
     scheduler.add_job(
         refresh_launchpad_stats,
         args=[db_engine, http_client],
         trigger=IntervalTrigger(seconds=21600),  # Every 6 hours
         id="refresh_launchpad_stats",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        refresh_launchpad_graduations,
+        args=[db_engine, http_client],
+        trigger=IntervalTrigger(seconds=86400),  # Daily
+        id="refresh_launchpad_graduations",
         replace_existing=True,
         max_instances=1,
     )

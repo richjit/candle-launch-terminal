@@ -14,13 +14,14 @@ function formatCompact(value: number): string {
 
 function HeroSummary({ data }: { data: LaunchOverviewData }) {
   const metrics = data.metrics;
-  const launches = metrics.find((m) => m.name === "Daily Launches");
-  const migration = metrics.find((m) => m.name === "Migration Rate");
+  const activity = metrics.find((m) => m.name === "Launchpad Activity");
+  const migration = activity; // Same metric now
   const survival = metrics.find((m) => m.name === "Survival Rate (24h)");
   const volume = metrics.find((m) => m.name === "Volume");
 
-  const launchCount = launches?.current ?? 0;
-  const migrationRate = migration?.current;
+  const totalLaunches = (activity as Record<string, unknown> | undefined)?.total_launches as number | undefined;
+  const launchCount = totalLaunches ?? 0;
+  const migrationRate = activity?.current;
   const survivalRate = survival?.current;
 
   // Determine overall market condition
@@ -119,7 +120,7 @@ export default function LaunchDashboard() {
             {data.metrics.map((metric) =>
               metric.name === "Launch Performance" ? (
                 <LaunchPerformanceCard key={metric.name} metric={metric} />
-              ) : metric.name === "Migration Rate" ? (
+              ) : metric.name === "Launchpad Activity" ? (
                 <LaunchMigrationCard key={metric.name} metric={metric} />
               ) : (
                 <LaunchMetricCard key={metric.name} metric={metric} />

@@ -58,8 +58,8 @@ async def test_overview_endpoint(app_with_data):
         assert resp.status_code == 200
         data = resp.json()
         assert "metrics" in data
-        # Should have 6 metrics (Time to Peak moved into Launch Performance)
-        assert len(data["metrics"]) == 6
+        # Should have 5 metrics (Daily Launches merged into Launchpad Activity)
+        assert len(data["metrics"]) == 5
         # Each metric should have current, trend, chart
         for m in data["metrics"]:
             assert "name" in m

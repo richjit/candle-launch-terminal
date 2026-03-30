@@ -66,7 +66,7 @@ export default function LaunchMigrationCard({ metric }: { metric: LaunchMetricDa
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-terminal-accent shadow-[0_0_6px_rgba(240,185,11,0.3)]" />
           <span className="text-xs text-terminal-muted uppercase tracking-wider font-medium">
-            Migration Rate
+            Launchpad Activity
           </span>
         </div>
         <span className="text-[10px] text-terminal-muted/40">24h</span>

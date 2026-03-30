@@ -2,20 +2,18 @@ import { useNavigate } from "react-router-dom";
 import type { LaunchMetricData, LaunchMetricSlug } from "../../types/launch";
 
 const METRIC_SLUGS: Record<string, LaunchMetricSlug> = {
-  "Migration Rate": "migration-rate",
+  "Launchpad Activity": "migration-rate",
   "Launch Performance": "peak-mcap",
   "Survival Rate (24h)": "survival",
   "Buy/Sell Ratio": "buy-sell",
-  "Daily Launches": "launches",
   "Volume": "volume",
 };
 
 const METRIC_DESCRIPTIONS: Record<string, string> = {
-  "Migration Rate": "Tokens graduating to DEX vs total created",
+  "Launchpad Activity": "Token launches and graduation rates per platform",
   "Launch Performance": "Peak mcap distribution for graduated tokens",
   "Survival Rate (24h)": "Tokens still actively trading after 24 hours",
   "Buy/Sell Ratio": "Buy pressure vs sell pressure in first hour",
-  "Daily Launches": "Tokens migrated to DEX in the last 24h",
   "Volume": "Total Solana DEX trading volume",
 };
 
@@ -24,7 +22,6 @@ const METRIC_TIMEFRAMES: Record<string, string> = {
   "Launch Performance": "24h",
   "Survival Rate (24h)": "24h",
   "Buy/Sell Ratio": "24h",
-  "Daily Launches": "24h",
   "Volume": "24h",
 };
 

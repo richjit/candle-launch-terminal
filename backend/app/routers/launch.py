@@ -404,26 +404,21 @@ async def get_overview(range: str = Query("30d")):
     volume_chart = await _get_historical_chart("dex_volume", range)
 
     if stats:
-        # Aggregated data available — use it for launch metrics
         perf = _metric_response("Launch Performance", stats, "median_peak_mcap_1h", lu)
         metrics = [
-            _metric_response("Migration Rate", stats, "migration_rate", lu),
+            _metric_response("Launchpad Activity", stats, "migration_rate", lu),
             _metric_response("Survival Rate (24h)", stats, "survival_rate_24h", lu),
             _metric_response("Buy/Sell Ratio", stats, "avg_buy_sell_ratio_1h", lu),
-            _metric_response("Daily Launches", stats, "total_launches", lu),
         ]
     else:
-        # Cold start — use live data from launch_tokens
         perf = _live_metric_response("Launch Performance", live.get("median_peak_mcap_1h"), lu)
         metrics = [
-            _live_metric_response("Migration Rate", live.get("migration_rate"), lu,
+            _live_metric_response("Launchpad Activity", live.get("migration_rate"), lu,
                                   breakdown=live.get("migration_breakdown"),
                                   extra={"total_graduated": live.get("total_graduated", 0),
                                          "total_launches": live.get("daily_launches", 0)}),
             _live_metric_response("Survival Rate (24h)", live.get("survival_rate"), lu),
             _live_metric_response("Buy/Sell Ratio", live.get("avg_buy_sell_ratio"), lu),
-            _live_metric_response("Daily Launches", live.get("daily_launches", 0), lu,
-                                  live.get("daily_launches_breakdown")),
         ]
 
     if tiers:
