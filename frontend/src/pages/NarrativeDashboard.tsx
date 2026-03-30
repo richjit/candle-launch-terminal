@@ -105,9 +105,17 @@ export default function NarrativeDashboard() {
 
   return (
     <PageLayout title="Narrative Tracker">
-      <p className="text-sm text-terminal-muted mb-6">
+      <p className="text-sm text-terminal-muted mb-4">
         On-chain trending narratives and top runners — what to launch next
       </p>
+
+      <div className="bg-terminal-red/5 border border-terminal-red/20 rounded-lg px-4 py-3 mb-6">
+        <p className="text-xs text-terminal-red/80 leading-relaxed">
+          This tool identifies trending narratives for token developers. Tokens shown here include
+          unverified and potentially dangerous coins. This is not investment advice — do not buy
+          tokens based on this data.
+        </p>
+      </div>
 
       {loading && !data && (
         <div className="text-terminal-muted text-center py-16">Scanning trends...</div>
