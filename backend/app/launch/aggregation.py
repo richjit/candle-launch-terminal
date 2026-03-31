@@ -175,7 +175,7 @@ async def cleanup_old_tokens(engine) -> int:
                 to_delete.append(t)
 
         for token in to_delete:
-            await session.delete(token)
+            session.delete(token)
 
         deleted = len(to_delete)
         if deleted:
