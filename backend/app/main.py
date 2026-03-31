@@ -36,6 +36,7 @@ from app.analysis.score_backfill import backfill_scores, compute_today_score
 from app.candle_builder import build_daily_candles
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+logger = logging.getLogger(__name__)
 
 cache = MemoryCache()
 http_client: httpx.AsyncClient | None = None
@@ -65,6 +66,7 @@ async def lifespan(app: FastAPI):
         set_correlations(correlations)
         await backfill_scores(db_engine, correlations)
         await compute_today_score(db_engine, correlations)
+        await run_narrative_pipeline(db_engine, http_client, settings.groq_api_key)
         logger.info("Background init complete")
 
     asyncio.create_task(_background_init())
@@ -173,9 +175,6 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
         max_instances=1,
     )
-
-    # Run narrative pipeline immediately on startup
-    await run_narrative_pipeline(db_engine, http_client, settings.groq_api_key)
 
     # Narrative tracker job
     scheduler.add_job(
