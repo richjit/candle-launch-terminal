@@ -12,3 +12,4 @@ pytest-asyncio==0.25.*
 pytest-httpx==0.35.*
 respx==0.22.*
 numpy>=1.26,<3
+scipy>=1.11,<2
