@@ -36,13 +36,6 @@ const TIER_CONFIG = [
     dotColor: "bg-terminal-accent shadow-[0_0_6px_rgba(240,185,11,0.4)]",
   },
   {
-    key: "top1" as const,
-    label: "Top 1%",
-    description: "Breakout launches — the winners",
-    color: "text-terminal-green",
-    dotColor: "bg-terminal-green shadow-[0_0_6px_rgba(0,230,118,0.4)]",
-  },
-  {
     key: "top10" as const,
     label: "Top 10%",
     description: "Tokens that got some traction",
@@ -120,7 +113,7 @@ export default function LaunchPerformanceCard({ metric }: { metric: LaunchMetric
         <div className="w-28 flex-shrink-0" />
         <div className="flex-1 text-[10px] text-terminal-muted/40 uppercase tracking-wider">Peak Mcap</div>
         <div className="w-20 text-right text-[10px] text-terminal-muted/40 uppercase tracking-wider">Mcap</div>
-        <div className="w-14 text-right text-[10px] text-terminal-muted/40 uppercase tracking-wider">Time</div>
+        <div className="w-14 text-right text-[10px] text-terminal-muted/40 uppercase tracking-wider">Reached after</div>
       </div>
 
       {/* Tiers */}
@@ -190,7 +183,7 @@ export default function LaunchPerformanceCard({ metric }: { metric: LaunchMetric
             <div className="w-28 flex-shrink-0">
               <div className="text-xs font-medium text-terminal-red/70">All Launches</div>
               <div className="text-[10px] text-terminal-muted/50 leading-tight">
-                Median including unbonded ({tiers.all_count?.toLocaleString()} tokens)
+                Median including unbonded
               </div>
             </div>
             <div className="flex-1 text-terminal-red/70">
