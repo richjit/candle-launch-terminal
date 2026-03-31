@@ -13,3 +13,4 @@ pytest-httpx==0.35.*
 respx==0.22.*
 numpy>=1.26,<3
 scipy>=1.11,<2
+solders>=0.21,<1
