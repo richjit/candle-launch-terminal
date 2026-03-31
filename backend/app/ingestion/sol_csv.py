@@ -25,6 +25,11 @@ async def ingest_sol_csv(engine, csv_path: str) -> int:
             logger.info(f"SOL OHLCV already ingested ({existing_count} rows), skipping")
             return 0
 
+    import os
+    if not os.path.exists(csv_path):
+        logger.warning(f"SOL OHLCV CSV not found at {csv_path!r}, skipping ingestion")
+        return 0
+
     rows_to_insert = []
     with open(csv_path, newline="") as f:
         reader = csv.reader(f)
