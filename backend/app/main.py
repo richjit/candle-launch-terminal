@@ -1,4 +1,5 @@
 # backend/app/main.py
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -50,20 +51,23 @@ async def lifespan(app: FastAPI):
     db_engine = await init_db(settings.database_url)
     http_client = httpx.AsyncClient()
 
-    # Run historical data backfill (idempotent)
-    # CSV path is relative to project root (one level up from backend/)
+    # Set engine for chart endpoint immediately so server is ready
+    set_chart_engine(db_engine)
+
+    # Run backfill + correlation chain in the background so Railway health checks pass
     import os
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     csv_path = os.path.join(project_root, "data", "BINANCE_SOLUSD, 1D_36137.csv")
-    await run_backfill(db_engine, http_client, sol_csv_path=csv_path)
 
-    # Compute correlations and backfill scores
-    correlations = await compute_correlations(db_engine)
-    set_correlations(correlations)
-    await backfill_scores(db_engine, correlations)
+    async def _background_init():
+        await run_backfill(db_engine, http_client, sol_csv_path=csv_path)
+        correlations = await compute_correlations(db_engine)
+        set_correlations(correlations)
+        await backfill_scores(db_engine, correlations)
+        await compute_today_score(db_engine, correlations)
+        logger.info("Background init complete")
 
-    # Set engine for chart endpoint
-    set_chart_engine(db_engine)
+    asyncio.create_task(_background_init())
 
     # Create fetchers
     dexscreener = DexScreenerFetcher(cache=cache, http_client=http_client, db_engine=db_engine)
@@ -97,8 +101,10 @@ async def lifespan(app: FastAPI):
     # Build daily candles from live price data (extends chart beyond CSV)
     await build_daily_candles(db_engine)
 
-    # Compute today's score immediately
-    await compute_today_score(db_engine, correlations)
+    async def _refresh_score():
+        corr = await compute_correlations(db_engine)
+        set_correlations(corr)
+        await compute_today_score(db_engine, corr)
 
     # Schedule candle builder and score updater to run every 5 minutes
     from apscheduler.triggers.interval import IntervalTrigger
@@ -111,8 +117,7 @@ async def lifespan(app: FastAPI):
         max_instances=1,
     )
     scheduler.add_job(
-        compute_today_score,
-        args=[db_engine, correlations],
+        _refresh_score,
         trigger=IntervalTrigger(seconds=300),
         id="compute_today_score",
         replace_existing=True,
