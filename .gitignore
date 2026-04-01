@@ -22,6 +22,7 @@ dist/
 # Data
 *.db
 data/
+!data/*.csv
 
 # Misc
 .DS_Store
